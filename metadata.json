@@ -1,0 +1,6 @@
+{
+  "name": "AgroSales IQ",
+  "description": "Enterprise Agro-Inputs Sales Intelligence, Multi-Company ETL, YTD Analytics, Budget Variance, and AI Executive Insights Assistant",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
