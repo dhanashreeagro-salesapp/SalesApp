@@ -50,6 +50,11 @@ export default function UploadCenter({
         const workbook = XLSX.read(data, { type: "array" });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
+        
+        // Extract Company data from Cell A1 of the sheet
+        const a1Cell = worksheet ? worksheet['A1'] : null;
+        const companyFromA1 = a1Cell && a1Cell.v ? String(a1Cell.v).trim() : undefined;
+
         const jsonData: any[] = XLSX.utils.sheet_to_json(worksheet);
 
         if (jsonData.length === 0) {
@@ -57,7 +62,7 @@ export default function UploadCenter({
         }
 
         if (activeTab === "sales") {
-          validateAndProcessSales(jsonData);
+          validateAndProcessSales(jsonData, companyFromA1);
         } else {
           validateAndProcessBudget(jsonData);
         }
@@ -73,38 +78,25 @@ export default function UploadCenter({
   };
 
   // ETL & Data cleaning pipelines for Invoices
-  const validateAndProcessSales = (rawRows: any[]) => {
-    const requiredHeaders = [
-      "invoice date",
-      "invoice number",
-      "company",
-      "customer name",
-      "customer code",
-      "region",
-      "state",
-      "territory",
-      "salesperson",
-      "regional manager",
-      "product name",
-      "product category",
-      "supplier",
-      "quantity",
-      "unit",
-      "rate"
-    ];
-
-    // Read first row keys to check format
+  const validateAndProcessSales = (rawRows: any[], companyFromA1?: string) => {
     const rowKeys = Object.keys(rawRows[0]).map(k => k.trim().toLowerCase());
-    const missingHeaders = requiredHeaders.filter(header => !rowKeys.includes(header));
+    
+    // Check if the uploaded headers contain either standard or the user's mapped column keys
+    const hasDate = rowKeys.some(k => ["date", "invoice date", "date of invoice"].includes(k));
+    const hasInvNo = rowKeys.some(k => ["invoice/voucher number", "invoice number", "invoice no", "inv no", "voucher number"].includes(k));
+    const hasCustomer = rowKeys.some(k => ["customer/ledger name", "customer name", "ledger name", "customer/ledger"].includes(k));
+    const hasProduct = rowKeys.some(k => ["stock group", "product name", "product", "item"].includes(k));
+    const hasRate = rowKeys.some(k => ["packing rate per kg/ltr", "rate", "price", "unit rate"].includes(k));
+    const hasQty = rowKeys.some(k => ["quantity in kg/ltr", "quantity", "qty", "volume"].includes(k));
 
-    if (missingHeaders.length > 3) {
-      // Allow up to 3 missing non-vital helper headers for flexibility, but absolute core check
+    if (!hasDate || !hasInvNo || !hasCustomer || !hasProduct || !hasRate || !hasQty) {
       setUploadStatus({
         type: "error",
         message: "Invoice upload template headers mismatch",
         details: [
-          "We expected headers matching: Invoice Date, Invoice Number, Company, Customer Name, Region, Salesperson, Product Name, Category, Rate, Quantity etc.",
-          `Mapped file headers are missing: ${missingHeaders.join(", ")}`
+          "Could not map the uploaded spreadsheet columns.",
+          "Expected header mappings to include: 'Date', 'Invoice/Voucher Number', 'Customer/Ledger Name', 'Stock Group', 'Packing Rate per Kg/Ltr', 'Quantity in Kg/Ltr'.",
+          `Detected columns: ${Object.keys(rawRows[0]).join(", ")}`
         ]
       });
       return;
@@ -112,8 +104,12 @@ export default function UploadCenter({
 
     const cleanedInvoices: InvoiceItem[] = [];
     const logs: string[] = [];
-    let duplicatesResolved = 0;
     let missingValuesFilled = 0;
+
+    // Report dynamic company parsing
+    if (companyFromA1) {
+      logs.push(`Extracted Company Name from A1 Cardboard: "${companyFromA1}"`);
+    }
 
     rawRows.forEach((row, idx) => {
       // Standardize properties casing
@@ -122,22 +118,50 @@ export default function UploadCenter({
         return matchingKey ? row[matchingKey] : null;
       };
 
-      const invoiceDateRaw = findVal(["invoice date", "date"]);
-      const invoiceNumber = String(findVal(["invoice number", "invoice no", "inv no"]) || `INV-TEMP-${1000 + idx}`);
-      const company = String(findVal(["company", "firm"]) || "Company A") as "Company A" | "Company B";
-      const customerName = String(findVal(["customer name", "dealer", "customer"]) || "Standard Dealer");
-      const customerCode = String(findVal(["customer code", "cust code", "dealer code"]) || "D_CUST");
-      const region = String(findVal(["region", "zone"]) || "West");
-      const state = String(findVal(["state"]) || "Maharashtra");
-      const territory = String(findVal(["territory", "area"]) || "West-1");
-      const salesperson = String(findVal(["salesperson", "officer", "employee"]) || "V. R. Sharma");
-      const regionalManager = String(findVal(["regional manager", "manager", "rm"]) || "S. R. Patil");
-      const productName = String(findVal(["product name", "product", "item"]) || "SugaMax Bio Enhancer");
-      const productCategory = String(findVal(["product category", "category", "segment"]) || "Biostimulants");
-      const supplier = String(findVal(["supplier", "manufacturer"]) || "BioCore Solutions India");
+      const invoiceDateRaw = findVal(["date", "invoice date", "date of invoice"]);
+      const invoiceNumber = String(findVal(["invoice/voucher number", "invoice number", "invoice no", "inv no", "voucher number"]) || `INV-TEMP-${1000 + idx}`);
       
-      const qtyRaw = findVal(["quantity", "qty", "volume"]);
-      const rateRaw = findVal(["rate", "price", "unit rate"]);
+      // Map company from Cell A1, falling back to row field, then "Company A"
+      let company: "Company A" | "Company B" = "Company A";
+      if (companyFromA1) {
+        const norm = companyFromA1.toLowerCase();
+        if (norm.includes("company b") || norm.includes("co b") || norm.includes("b")) {
+          company = "Company B";
+        }
+      } else {
+        const rowCompany = findVal(["company", "firm", "voucher type"]);
+        if (rowCompany) {
+          const norm = String(rowCompany).toLowerCase();
+          if (norm.includes("company b") || norm.includes("co b") || norm.includes("b")) {
+            company = "Company B";
+          }
+        }
+      }
+
+      const customerName = String(findVal(["customer/ledger name", "customer name", "dealer", "customer", "ledger name"]) || "Standard Dealer");
+      const customerCode = String(findVal(["customer code", "cust code", "dealer code"]) || `CUST_${customerName.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6)}`);
+      
+      const region = String(findVal(["name of group", "region", "zone"]) || "West");
+      const state = String(findVal(["state"]) || "Maharashtra");
+      const territory = String(findVal(["name of sub group", "territory", "area"]) || "West-1");
+      const salesperson = String(findVal(["name of sub group", "salesperson", "officer", "employee"]) || "V. R. Sharma");
+      
+      // Resolve corporate Supervisor parent-child hierarchy automatically
+      let regionalManager = "S. R. Patil";
+      if (salesperson.toLowerCase().includes("sharma") || salesperson.toLowerCase().includes("patil") || salesperson.toLowerCase().includes("kulkarni")) {
+        regionalManager = "S. R. Patil";
+      } else if (salesperson.toLowerCase().includes("rao") || salesperson.toLowerCase().includes("gopal") || salesperson.toLowerCase().includes("swamy")) {
+        regionalManager = "K. Swamy";
+      } else if (salesperson.toLowerCase().includes("singh") || salesperson.toLowerCase().includes("verma")) {
+        regionalManager = "R. K. Singh";
+      }
+
+      const productName = String(findVal(["stock group", "product name", "product", "item"]) || "SugaMax Bio Enhancer");
+      const productCategory = String(findVal(["category", "stock group", "product category", "segment"]) || "Biostimulants");
+      const supplier = String(findVal(["stock category", "supplier", "manufacturer"]) || "BioCore Solutions India");
+      
+      const qtyRaw = findVal(["quantity in kg/ltr", "quantity", "qty", "volume"]);
+      const rateRaw = findVal(["packing rate per kg/ltr", "rate", "price", "unit rate"]);
       
       let quantity = Number(qtyRaw);
       if (isNaN(quantity)) { quantity = 1; missingValuesFilled++; }
@@ -201,8 +225,8 @@ export default function UploadCenter({
       });
     });
 
-    logs.push(`Successfully standardized client and brand spellings.`);
-    if (missingValuesFilled > 0) logs.push(`Resolved ${missingValuesFilled} empty or NaN quantities/rates to standard base.`);
+    logs.push(`Successfully mapped raw transaction columns. Merged company context.`);
+    if (missingValuesFilled > 0) logs.push(`Resolved ${missingValuesFilled} empty or NaN values.`);
 
     onDataUploaded(cleanedInvoices, []);
     setUploadStatus({

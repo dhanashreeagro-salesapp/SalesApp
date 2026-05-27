@@ -31,6 +31,7 @@ let localInvoices: any[] = [];
 let localBudgets: any[] = [];
 let localAuditLogs: any[] = [];
 let localEmailLogs: any[] = [];
+let localUsers: any[] = [];
 
 // Lazy Load seed data inside server to write initial DB
 import { SEED_INVOICES, SEED_BUDGETS, SEED_USERS, INITIAL_AUDIT_LOGS, INITIAL_EMAIL_LOGS } from "./src/data/seedData";
@@ -44,7 +45,8 @@ function loadDB() {
       localBudgets = data.budgets || [];
       localAuditLogs = data.auditLogs || [];
       localEmailLogs = data.emailLogs || [];
-      console.log(`Database loaded successfully with ${localInvoices.length} invoices.`);
+      localUsers = data.users || [];
+      console.log(`Database loaded successfully with ${localInvoices.length} invoices and ${localUsers.length} users.`);
     } catch (e) {
       console.error("Error reading db.json, resetting to seed data", e);
       resetToDefaultSeed();
@@ -61,6 +63,7 @@ function saveDB() {
       budgets: localBudgets,
       auditLogs: localAuditLogs,
       emailLogs: localEmailLogs,
+      users: localUsers,
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf-8");
   } catch (e) {
@@ -73,6 +76,10 @@ function resetToDefaultSeed() {
   localBudgets = [...SEED_BUDGETS];
   localAuditLogs = [...INITIAL_AUDIT_LOGS];
   localEmailLogs = [...INITIAL_EMAIL_LOGS];
+  localUsers = SEED_USERS.map(u => ({
+    ...u,
+    password: u.email === "admin@agroiq.com" ? "admin123" : "password123"
+  }));
   saveDB();
   console.log("Database initialized with seed data.");
 }
@@ -109,8 +116,71 @@ app.get("/api/db", (req, res) => {
     budgets: localBudgets,
     auditLogs: localAuditLogs,
     emailLogs: localEmailLogs,
-    users: SEED_USERS, // Read-only standard profiles
+    users: localUsers,
   });
+});
+
+// Create/Update User profile (used by both general Registration and Admin settings panels)
+app.post("/api/users/save", (req, res) => {
+  const { user, initiator } = req.body;
+  if (!user || !user.email) {
+    return res.status(400).json({ error: "Missing required profile parameters" });
+  }
+
+  const existingIdx = localUsers.findIndex(u => u.email.toLowerCase() === user.email.toLowerCase());
+  
+  const updatedUser = {
+    ...user,
+    id: user.id || `user_${Date.now()}`,
+    password: user.password || "password123"
+  };
+
+  if (existingIdx >= 0) {
+    localUsers[existingIdx] = updatedUser;
+  } else {
+    localUsers.push(updatedUser);
+  }
+
+  // Log action to System Audit trail
+  const timestamp = new Date().toISOString();
+  localAuditLogs.unshift({
+    timestamp,
+    user: initiator?.name || "System Admin",
+    action: existingIdx >= 0 ? "Edit User Profile" : "Create User Profile",
+    details: `Successfully managed profile for ${updatedUser.name} with security clearance role '${updatedUser.role}'.`,
+    status: "Success"
+  });
+
+  saveDB();
+  res.json({ success: true, users: localUsers });
+});
+
+// Delete User profile
+app.post("/api/users/delete", (req, res) => {
+  const { userId, initiator } = req.body;
+  if (!userId) {
+    return res.status(400).json({ error: "Missing Target User Identification ID" });
+  }
+
+  const foundUser = localUsers.find(u => u.id === userId);
+  if (!foundUser) {
+    return res.status(404).json({ error: "No profile matching specified ID exists" });
+  }
+
+  localUsers = localUsers.filter(u => u.id !== userId);
+
+  // Log action
+  const timestamp = new Date().toISOString();
+  localAuditLogs.unshift({
+    timestamp,
+    user: initiator?.name || "System Admin",
+    action: "Delete User Profile",
+    details: `Deleted database clearance profile for ${foundUser.name} (${foundUser.role}).`,
+    status: "Success"
+  });
+
+  saveDB();
+  res.json({ success: true, users: localUsers });
 });
 
 // 2. Save database changes (updates invoices / budgets)

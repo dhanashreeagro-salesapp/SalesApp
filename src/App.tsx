@@ -31,6 +31,7 @@ import UploadCenter from "./components/UploadCenter";
 import AiAssistant from "./components/AiAssistant";
 import EmailScheduler from "./components/EmailScheduler";
 import AdminSettings from "./components/AdminSettings";
+import LoginScreen from "./components/LoginScreen";
 
 export default function App() {
   const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
@@ -40,6 +41,7 @@ export default function App() {
   const [users, setUsers] = useState<UserProfile[]>([]);
 
   const [selectedUser, setSelectedUser] = useState<UserProfile>(SEED_USERS[0]); // Default to Sales Director
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [activeTab, setActiveTab ] = useState<"executive" | "upload" | "scheduler" | "advisor" | "admin">("executive");
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -59,8 +61,18 @@ export default function App() {
       setUsers(data.users || SEED_USERS);
       
       // Update our selected user state in case list changed
-      const currentInList = (data.users || SEED_USERS).find((u: any) => u.id === selectedUser.id);
-      if (currentInList) setSelectedUser(currentInList);
+      const localSession = localStorage.getItem("agroSalesSession");
+      if (localSession) {
+        const savedUser = JSON.parse(localSession);
+        const currentInList = (data.users || SEED_USERS).find((u: any) => u.email.toLowerCase() === savedUser.email.toLowerCase());
+        if (currentInList) {
+          setSelectedUser(currentInList);
+          setIsAuthenticated(true);
+        }
+      } else {
+        const currentInList = (data.users || SEED_USERS).find((u: any) => u.id === selectedUser.id);
+        if (currentInList) setSelectedUser(currentInList);
+      }
     } catch (e) {
       console.error("Failed to load full-stack persistent database", e);
     } finally {
@@ -71,6 +83,73 @@ export default function App() {
   useEffect(() => {
     fetchDatabase();
   }, []);
+
+  const handleLoginSuccess = (user: UserProfile) => {
+    setSelectedUser(user);
+    setIsAuthenticated(true);
+    localStorage.setItem("agroSalesSession", JSON.stringify(user));
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    localStorage.removeItem("agroSalesSession");
+    if (users.length > 0) {
+      setSelectedUser(users[0]);
+    } else {
+      setSelectedUser(SEED_USERS[0]);
+    }
+  };
+
+  // Add/Update User from Settings panel or login signup
+  const handleSaveUser = async (userPayload: any) => {
+    try {
+      const response = await fetch("/api/users/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user: userPayload,
+          initiator: selectedUser
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setUsers(data.users);
+        const updatedSelf = data.users.find((u: any) => u.email.toLowerCase() === selectedUser.email.toLowerCase());
+        if (updatedSelf) {
+          setSelectedUser(updatedSelf);
+          localStorage.setItem("agroSalesSession", JSON.stringify(updatedSelf));
+        }
+        await fetchDatabase();
+        return true;
+      }
+    } catch (e) {
+      console.error("Failed to save credentials", e);
+    }
+    return false;
+  };
+
+  // Revoke credentials
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      const response = await fetch("/api/users/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          initiator: selectedUser
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setUsers(data.users);
+        await fetchDatabase();
+        return true;
+      }
+    } catch (e) {
+      console.error("Failed to suspend credentials", e);
+    }
+    return false;
+  };
 
   // Save parsed spreadsheets back to persistent server database
   const handleUploadedFiles = async (newInvoices: InvoiceItem[], newBudgets: BudgetItem[]) => {
@@ -230,6 +309,16 @@ export default function App() {
     );
   }
 
+  if (!isAuthenticated) {
+    return (
+      <LoginScreen
+        users={users}
+        onLoginSuccess={handleLoginSuccess}
+        onRegisterUser={handleSaveUser}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50/50 flex flex-col antialiased">
       
@@ -246,45 +335,55 @@ export default function App() {
         </div>
 
         {/* Dynamic Logged-in Persona Swapper Panel */}
-        <div className="relative">
-          <button
-            onClick={() => setShowPersonaDropdown(!showPersonaDropdown)}
-            className="flex items-center gap-2.5 bg-gray-50 border border-gray-200 hover:bg-gray-100/80 px-4 py-2 rounded-xl text-xs text-left transition focus:outline-none"
-          >
-            <div>
-              <div className="text-[10px] uppercase font-semibold tracking-wider text-gray-400">Viewing Role Scope</div>
-              <div className="font-bold text-gray-900 flex items-center gap-1 mt-0.5">
-                {selectedUser.name} ({selectedUser.role === "Regional Manager" ? `RM ${selectedUser.region}` : selectedUser.role})
-                <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <button
+              onClick={() => setShowPersonaDropdown(!showPersonaDropdown)}
+              className="flex items-center gap-2.5 bg-gray-50 border border-gray-200 hover:bg-gray-100/80 px-4 py-2 rounded-xl text-xs text-left transition focus:outline-none"
+            >
+              <div>
+                <div className="text-[10px] uppercase font-semibold tracking-wider text-gray-400">Viewing Role Scope</div>
+                <div className="font-bold text-gray-900 flex items-center gap-1 mt-0.5">
+                  {selectedUser.name} ({selectedUser.role === "Regional Manager" ? `RM ${selectedUser.region}` : selectedUser.role})
+                  <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+                </div>
               </div>
-            </div>
-          </button>
+            </button>
 
-          {showPersonaDropdown && (
-            <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-100 rounded-xl shadow-xl z-50 p-2 space-y-1">
-              <div className="px-3 py-1.5 text-[10px] text-gray-450 uppercase font-semibold">Switch Persona (Interactive RLS testing)</div>
-              {users.map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => {
-                    setSelectedUser(u);
-                    setShowPersonaDropdown(false);
-                    // Clear filters on role switch to avoid empty states
-                    setActiveFilters({ company: "All", rm: "All", category: "All", searchQuery: "" });
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium flex items-center justify-between transition ${
-                    selectedUser.id === u.id ? "bg-green-50 text-green-700 font-bold" : "text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  <div>
-                    <div>{u.name}</div>
-                    <div className="text-[9px] text-gray-450 font-normal">{u.role} {u.region ? `• ${u.region}` : ""} {u.territory ? `• ${u.territory}` : ""}</div>
-                  </div>
-                  {selectedUser.id === u.id && <span className="w-1.5 h-1.5 bg-green-600 rounded-full" />}
-                </button>
-              ))}
-            </div>
-          )}
+            {showPersonaDropdown && (
+              <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-100 rounded-xl shadow-xl z-50 p-2 space-y-1">
+                <div className="px-3 py-1.5 text-[10px] text-gray-450 uppercase font-semibold">Switch Persona (Interactive RLS testing)</div>
+                {users.map((u) => (
+                  <button
+                    key={u.id}
+                    onClick={() => {
+                      setSelectedUser(u);
+                      setShowPersonaDropdown(false);
+                      // Clear filters on role switch to avoid empty states
+                      setActiveFilters({ company: "All", rm: "All", category: "All", searchQuery: "" });
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium flex items-center justify-between transition ${
+                      selectedUser.id === u.id ? "bg-green-50 text-green-700 font-bold" : "text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    <div>
+                      <div>{u.name}</div>
+                      <div className="text-[9px] text-gray-450 font-normal">{u.role} {u.region ? `• ${u.region}` : ""} {u.territory ? `• ${u.territory}` : ""}</div>
+                    </div>
+                    {selectedUser.id === u.id && <span className="w-1.5 h-1.5 bg-green-600 rounded-full" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={handleLogout}
+            className="px-3 py-2 border border-red-200 hover:bg-red-50 text-red-600 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+            title="Terminate Secure Session"
+          >
+            🔒 Logout
+          </button>
         </div>
       </header>
 
@@ -423,6 +522,9 @@ export default function App() {
               auditLogs={auditLogs}
               onResetDatabase={handleResetDatabase}
               currentUser={selectedUser}
+              users={users}
+              onSaveUser={handleSaveUser}
+              onDeleteUser={handleDeleteUser}
             />
           )}
 
