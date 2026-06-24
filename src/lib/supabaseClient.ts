@@ -254,6 +254,7 @@ export async function saveUserProfileToSupabase(user: Partial<UserProfile> & { p
   const row = {
     name: user.name,
     email: user.email,
+    password: user.password, // add password field
     role: user.role,
     territory: user.territory || "",
     region: user.region || "",
@@ -751,6 +752,7 @@ function mapUserRow(row: any): UserProfile {
     id: row.id,
     name: row.name,
     email: row.email,
+    password: row.password, // load password for fallback auth
     role: row.role as any,
     region: row.region || undefined,
     territory: row.territory || undefined,
