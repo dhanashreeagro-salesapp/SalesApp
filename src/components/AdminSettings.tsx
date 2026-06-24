@@ -7,6 +7,14 @@ import React, { useState } from "react";
 import { Settings, Shield, Terminal, Library, AlertCircle, RefreshCw, Layers, CheckCircle, Users, UserPlus, Trash2, Edit3, Key, Mail, MapPin, ArrowUp, ShieldCheck, Activity, Database, AlertTriangle } from "lucide-react";
 import { AuditLog, UserProfile, InvoiceItem } from "../types";
 
+import { 
+  isSupabaseConfigured,
+  fetchDatabaseStatsFromSupabase,
+  runIntegrityCheckOnSupabase,
+  cleanDuplicateRowsOnSupabase,
+  alignOrphanInvoicesOnSupabase
+} from "../lib/supabaseClient";
+
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
 export interface HierarchyNode {
@@ -37,6 +45,14 @@ function AdminDebugPanel({ invoices, users }: { invoices: InvoiceItem[], users: 
     setLoading(true);
     setError("");
     try {
+      if (isSupabaseConfigured()) {
+        const stats = await fetchDatabaseStatsFromSupabase();
+        if (stats) {
+          setDebugStats(stats);
+          return;
+        }
+      }
+
       const apiBase = import.meta.env.VITE_API_URL || "";
       const res = await fetch(`${apiBase}/api/admin/debug-stats`);
       if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to retrieve database statistics`);
@@ -279,6 +295,13 @@ export default function AdminSettings({
     setIntegrityError("");
     setIntegritySuccessMsg("");
     try {
+      if (isSupabaseConfigured()) {
+        const d = await runIntegrityCheckOnSupabase();
+        if (d) {
+          setIntegrityData(d);
+          return;
+        }
+      }
       const res = await fetch(`${API_BASE}/api/admin/integrity-check`);
       if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to reach diagnostic service`);
       const d = await res.json();
@@ -299,6 +322,14 @@ export default function AdminSettings({
     setCleaningDups(true);
     setIntegritySuccessMsg("");
     try {
+      if (isSupabaseConfigured()) {
+        const d = await cleanDuplicateRowsOnSupabase();
+        if (d && d.success) {
+          setIntegritySuccessMsg(`Successfully Deduplicated! Cleared ${d.cleanedCount || 0} redundant rows.`);
+          await runIntegritySweep();
+          return;
+        }
+      }
       const res = await fetch(`${API_BASE}/api/admin/clean-duplicates`, { method: "POST" });
       const d = await res.json();
       if (d.success) {
@@ -319,6 +350,14 @@ export default function AdminSettings({
     setAligningOrphans(true);
     setIntegritySuccessMsg("");
     try {
+      if (isSupabaseConfigured()) {
+        const d = await alignOrphanInvoicesOnSupabase();
+        if (d && d.success) {
+          setIntegritySuccessMsg(`Successfully Aligned! Resolved and linked salesperson IDs for ${d.fixedCount || 0} invoices.`);
+          await runIntegritySweep();
+          return;
+        }
+      }
       const res = await fetch(`${API_BASE}/api/align-orphans || /api/admin/align-orphans`, {
         method: "POST"
       });

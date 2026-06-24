@@ -109,7 +109,7 @@ export function runSupabaseDiagnostics(): void {
   };
 
   console.log("%c=== DHANASHREE SALESIQ: SUPABASE CLOUD STATUS DIAGNOSTICS ===", "color: #4f46e5; font-weight: bold; font-size: 13px;");
-  
+
   console.log("[Diagnostic] 1. Compile-Time Settings (Vite Bundler):");
   console.log("   - VITE_SUPABASE_URL State:", compileUrl ? "✓ ACTIVE PRESET" : "✗ MISSING / UNDEFINED");
   console.log("   - VITE_SUPABASE_URL Value:", compileUrl || "N/A");
@@ -124,7 +124,7 @@ export function runSupabaseDiagnostics(): void {
 
   console.log("[Diagnostic] 3. Client Availability:");
   console.log("   - Singleton Client Instance:", isSupabaseConfigured() ? "✓ ACTIVE (Valid connection initialized)" : "✗ OFFLINE / FALLBACK ACTIVE (Simulated locally)");
-  
+
   console.log("================================================================");
 }
 
@@ -591,6 +591,155 @@ export async function deleteUserFromSupabase(userId: string): Promise<boolean> {
     return false;
   }
   return true;
+}
+
+export async function fetchDatabaseStatsFromSupabase(): Promise<any> {
+  const sb = getSupabase();
+  if (!sb) return null;
+
+  try {
+    const { count: totalInvoices } = await sb.from("sales_data").select("*", { count: "exact", head: true });
+    const { data: rawInvoices, error: salesErr } = await sb.from("sales_data").select("invoice_date, company, product_category");
+    
+    if (salesErr) throw salesErr;
+
+    const companyCounts: Record<string, number> = {};
+    const yearCounts: Record<string, number> = {};
+    const monthCounts: Record<string, number> = {};
+    const categoryCounts: Record<string, number> = {};
+
+    (rawInvoices || []).forEach(inv => {
+      const co = inv.company || "Unknown";
+      companyCounts[co] = (companyCounts[co] || 0) + 1;
+
+      const cat = inv.product_category || "Uncategorized";
+      categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+
+      if (inv.invoice_date) {
+        const d = new Date(inv.invoice_date);
+        if (!isNaN(d.getTime())) {
+          const y = d.getFullYear().toString();
+          const m = d.toLocaleString("default", { month: "long" });
+          yearCounts[y] = (yearCounts[y] || 0) + 1;
+          monthCounts[m] = (monthCounts[m] || 0) + 1;
+        }
+      }
+    });
+
+    return {
+      success: true,
+      totalInvoices: totalInvoices || 0,
+      visibleInvoices: rawInvoices?.length || 0,
+      companyCounts,
+      yearCounts,
+      monthCounts,
+      categoryCounts
+    };
+  } catch (err) {
+    console.error("Error fetching debug stats from Supabase:", err);
+    return null;
+  }
+}
+
+export async function runIntegrityCheckOnSupabase(): Promise<any> {
+  const sb = getSupabase();
+  if (!sb) return null;
+
+  try {
+    const { data: invoices } = await sb.from("sales_data").select("id, salesperson, salesperson_id, invoice_number, invoice_date, product_name, customer_code");
+    const { data: users } = await sb.from("users").select("id, name, email");
+
+    const orphans = (invoices || []).filter(inv => !inv.salesperson_id);
+    
+    const duplicates: any[] = [];
+    const seen = new Map<string, string>();
+    (invoices || []).forEach(inv => {
+      const key = `${inv.invoice_number}-${inv.invoice_date}-${inv.product_name}-${inv.customer_code}`.toLowerCase();
+      if (seen.has(key)) {
+        duplicates.push({ id: inv.id, key });
+      } else {
+        seen.set(key, inv.id);
+      }
+    });
+
+    return {
+      success: true,
+      orphanInvoices: orphans.length,
+      duplicateInvoices: duplicates.length,
+      totalInvoices: invoices?.length || 0,
+      totalUsers: users?.length || 0
+    };
+  } catch (err) {
+    console.error("Error running integrity check on Supabase:", err);
+    return null;
+  }
+}
+
+export async function cleanDuplicateRowsOnSupabase(): Promise<any> {
+  const sb = getSupabase();
+  if (!sb) return { success: false, error: "Supabase not configured" };
+
+  try {
+    const { data: invoices } = await sb.from("sales_data").select("id, invoice_number, invoice_date, product_name, customer_code");
+    const seen = new Map<string, string>();
+    const dupIds: string[] = [];
+
+    (invoices || []).forEach(inv => {
+      const key = `${inv.invoice_number}-${inv.invoice_date}-${inv.product_name}-${inv.customer_code}`.toLowerCase();
+      if (seen.has(key)) {
+        dupIds.push(inv.id);
+      } else {
+        seen.set(key, inv.id);
+      }
+    });
+
+    if (dupIds.length === 0) return { success: true, cleanedCount: 0 };
+
+    // Batch delete duplicates (chunks of 100)
+    let cleanedCount = 0;
+    for (let i = 0; i < dupIds.length; i += 100) {
+      const chunk = dupIds.slice(i, i + 100);
+      const { error } = await sb.from("sales_data").delete().in("id", chunk);
+      if (error) throw error;
+      cleanedCount += chunk.length;
+    }
+
+    return { success: true, cleanedCount };
+  } catch (err: any) {
+    console.error("Error cleaning duplicates on Supabase:", err);
+    return { success: false, error: err.message };
+  }
+}
+
+export async function alignOrphanInvoicesOnSupabase(): Promise<any> {
+  const sb = getSupabase();
+  if (!sb) return { success: false, error: "Supabase not configured" };
+
+  try {
+    const { data: orphans } = await sb.from("sales_data").select("id, salesperson").is("salesperson_id", null);
+    const { data: users } = await sb.from("users").select("id, name, email");
+
+    if (!orphans || orphans.length === 0) return { success: true, fixedCount: 0 };
+
+    let fixedCount = 0;
+    for (const inv of orphans) {
+      const spName = (inv.salesperson || "").trim().toLowerCase();
+      const matchedUser = (users || []).find(u => 
+        (u.name && u.name.trim().toLowerCase() === spName) ||
+        (u.email && u.email.trim().toLowerCase() === spName)
+      );
+
+      if (matchedUser) {
+        const { error } = await sb.from("sales_data").update({ salesperson_id: matchedUser.id }).eq("id", inv.id);
+        if (!error) fixedCount++;
+      }
+    }
+
+    return { success: true, fixedCount };
+  } catch (err: any) {
+    console.error("Error aligning orphans on Supabase:", err);
+    return { success: false, error: err.message };
+  }
 }
 
 // ==================================================
