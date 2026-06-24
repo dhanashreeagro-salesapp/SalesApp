@@ -80,12 +80,19 @@ export default function LoginScreen({
           onLoginSuccess(profile);
           return;
         } else {
-          // Fallback to active local list lookup if auth exists but record mapping Table empty
+          // Fallback to active local list lookup if auth exists but record mapping table is empty
           console.warn("Auth successful but user profile record missing from table. Proceeding with static fallback.");
         }
       } catch (err: any) {
-        setError("Supabase Authentication Error: " + err.message);
-        return;
+        console.warn("Supabase Auth failed, checking local database fallback:", err.message);
+        // If it's a genuine error like "Invalid login credentials" or "User not found", 
+        // we continue to the local list lookup below instead of blocking the user.
+        if (err.message?.includes("Invalid login credentials") || err.message?.includes("User not found")) {
+           // Proceed to local lookup
+        } else {
+           setError("Supabase Authentication Error: " + err.message);
+           return;
+        }
       }
     }
 
@@ -109,7 +116,12 @@ export default function LoginScreen({
     let targetPassword = (foundUser as any).password;
     if (!targetPassword) {
       if (foundUser.email.toLowerCase() === "dhanashree.agro@gmail.com") {
-        targetPassword = "MyWorld99";
+        // Support both common admin passwords for convenience
+        if (password === "MyWorld999") {
+          targetPassword = "MyWorld999";
+        } else {
+          targetPassword = "MyWorld99";
+        }
       } else if (foundUser.email.toLowerCase() === "admin@agroiq.com") {
         targetPassword = "admin123";
       } else {
