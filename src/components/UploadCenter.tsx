@@ -212,7 +212,7 @@ export default function UploadCenter({
             
             // Select a real logged-in or seeded salesperson UUID as a fallback to avoid NULLs
             const sPersons = (users || []).filter(u => u.role === "Salesperson" && u.id && u.id.includes("-"));
-            const defaultSpId = sPersons.length > 0 ? sPersons[0].id : "user_sp_west1";
+            const defaultSpId = sPersons.length > 0 ? sPersons[0].id : null;
             
             const salesperson_id = (matchedUser && matchedUser.id && matchedUser.id.includes("-")) 
               ? matchedUser.id 
@@ -242,7 +242,7 @@ export default function UploadCenter({
               } else {
                 // look for admin/director fallback
                 const boss = (users || []).find(u => (u.role === "Sales Director" || u.role === "Admin") && u.id && u.id.includes("-"));
-                manager_id = boss ? boss.id : "user_rm_west";
+                manager_id = boss ? boss.id : null;
               }
             }
 
