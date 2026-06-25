@@ -247,12 +247,25 @@ export function compileAnalytics(
   const scopedInvoices = filterDataByRole(invoices, user, usersList);
   const scopedBudgets = filterBudgetsByRole(budgets, user, invoices, usersList);
 
-  // 2. Separate into Current YTD and Previous YTD lines
+  // 2. Separate into Current YTD and Previous YTD lines dynamically
+  let latestYear = 2026;
+  if (invoices && invoices.length > 0) {
+    let maxYear = 0;
+    invoices.forEach((inv) => {
+      if (inv.invoiceDate) {
+        const y = Number(inv.invoiceDate.split("-")[0]);
+        if (!isNaN(y) && y > maxYear) maxYear = y;
+      }
+    });
+    if (maxYear > 0) latestYear = maxYear;
+  }
+  const prevYear = latestYear - 1;
+
   const currentInvoices = scopedInvoices.filter((inv) =>
-    isDateInYTDPeriod(inv.invoiceDate, 2026, upToMonth, upToDay)
+    isDateInYTDPeriod(inv.invoiceDate, latestYear, upToMonth, upToDay)
   );
   const prevInvoices = scopedInvoices.filter((inv) =>
-    isDateInYTDPeriod(inv.invoiceDate, 2025, upToMonth, upToDay)
+    isDateInYTDPeriod(inv.invoiceDate, prevYear, upToMonth, upToDay)
   );
 
   // Total sales

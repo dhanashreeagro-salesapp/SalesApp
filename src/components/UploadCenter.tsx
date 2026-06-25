@@ -5,7 +5,7 @@
 
 import React, { useState, useRef } from "react";
 import * as XLSX from "xlsx";
-import { Upload, FileText, CheckCircle2, AlertTriangle, CloudRain, ShieldCheck, Database, RefreshCw, AlertCircle, Lock } from "lucide-react";
+import { Upload, FileText, CheckCircle2, AlertTriangle, CloudRain, ShieldCheck, Database, RefreshCw, AlertCircle, Lock, Target, Users } from "lucide-react";
 import { InvoiceItem, BudgetItem, UserProfile } from "../types";
 import { getSupabase, uploadExcelToStorage } from "../lib/supabaseClient";
 
@@ -35,6 +35,7 @@ function getStandardizedValue(value: string, category: "customer" | "product"): 
 
 interface UploadCenterProps {
   onDataUploaded: (invoices: InvoiceItem[], budgets: BudgetItem[], duplicateAction?: "replace" | "ignore") => Promise<any>;
+  onSaveUsersBulk?: (users: any[]) => Promise<any>;
   currentUser: UserProfile;
   existingInvoicesCount: number;
   existingBudgetsCount: number;
@@ -46,6 +47,7 @@ interface UploadCenterProps {
 
 export default function UploadCenter({
   onDataUploaded,
+  onSaveUsersBulk,
   currentUser,
   existingInvoicesCount,
   existingBudgetsCount,
@@ -54,9 +56,10 @@ export default function UploadCenter({
   existingInvoices = [],
   users = [],
 }: UploadCenterProps) {
-  const [activeTab, setActiveTab] = useState<"sales" | "budget">("sales");
+  const [activeTab, setActiveTab] = useState<"sales" | "budget" | "users">("sales");
   const [stagedInvoices, setStagedInvoices] = useState<InvoiceItem[]>([]);
   const [stagedBudgets, setStagedBudgets] = useState<BudgetItem[]>([]);
+  const [stagedUsers, setStagedUsers] = useState<any[]>([]);
   const [duplicateResolution, setDuplicateResolution] = useState<"replace" | "ignore">("replace");
   const [uploadStatus, setUploadStatus] = useState<{
     type: "success" | "error" | "committed" | "idle";
@@ -94,7 +97,7 @@ export default function UploadCenter({
       setAuditLogsConsole(prev => [...prev, msg]);
     };
 
-    if (!sb) {
+    if (!sb && activeTab !== "users") {
       addLog(`[CRITICAL ERROR] Supabase connection is offline. Client-side credentials missing or failed to initialize.`);
       setUploadStatus({
         type: "error",
@@ -109,37 +112,41 @@ export default function UploadCenter({
     }
 
     // Pre-flight database connection test query
-    addLog(`[Pipeline] Running pre-flight database connection test (select count(*) from sales_data limit 1)...`);
-    try {
-      const { error: testErr } = await sb
-        .from("sales_data")
-        .select("*", { count: "exact", head: true })
-        .limit(1);
+    if (activeTab !== "users") {
+      addLog(`[Pipeline] Running pre-flight database connection test (select count(*) from sales_data limit 1)...`);
+      try {
+        const { error: testErr } = await sb!
+          .from("sales_data")
+          .select("*", { count: "exact", head: true })
+          .limit(1);
 
-      if (testErr) {
-        throw new Error(`${testErr.message} (Code: ${testErr.code || "unknown"})`);
+        if (testErr) {
+          throw new Error(`${testErr.message} (Code: ${testErr.code || "unknown"})`);
+        }
+        addLog(`[Pipeline Success] Database connection test passed! Supabase is fully responsive.`);
+      } catch (conErr: any) {
+        console.error("Supabase pre-flight connection test aborted:", conErr);
+        const errDetail = conErr.message || "Uncaught network failure; check web console for CORS or CSP restrictions.";
+        addLog(`[CRITICAL CONNECTION FAILURE] ${errDetail}`);
+        setUploadStatus({
+          type: "error",
+          message: "Upload failed. Check logs.",
+          details: [
+            `Supabase connection credentials are missing or could not be established.`,
+            `Database Error Details: ${errDetail}`,
+            `Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel/Vite variables.`
+          ]
+        });
+        setIsSyncingDirectly(false);
+        return;
       }
-      addLog(`[Pipeline Success] Database connection test passed! Supabase is fully responsive.`);
-    } catch (conErr: any) {
-      console.error("Supabase pre-flight connection test aborted:", conErr);
-      const errDetail = conErr.message || "Uncaught network failure; check web console for CORS or CSP restrictions.";
-      addLog(`[CRITICAL CONNECTION FAILURE] ${errDetail}`);
-      setUploadStatus({
-        type: "error",
-        message: "Upload failed. Check logs.",
-        details: [
-          `Supabase connection credentials are missing or could not be established.`,
-          `Database Error Details: ${errDetail}`,
-          `Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel/Vite variables.`
-        ]
-      });
-      setIsSyncingDirectly(false);
-      return;
+    } else {
+      addLog(`[Pipeline] Running user import pre-flight check...`);
     }
 
     try {
       // 1. Storage Upload
-      if (activeFile) {
+      if (activeFile && sb) {
         addLog(`[Storage] Archiving raw file "${activeFile.name}" to Supabase Storage before processing...`);
         const fileExt = activeFile.name.split(".").pop();
         const rawFileName = `${(activeFile.name || "Upload").replace(/\s+/g, "_")}_${Date.now()}.${fileExt}`;
@@ -175,12 +182,37 @@ export default function UploadCenter({
         addLog(`[Validate] Counted ${parsedCount} staged invoices ready for ingestion.`);
 
         addLog(`[Deduplicate] Querying existing database invoice records to verify duplicates...`);
-        const { data: existingSales, error: fetchErr } = await sb
-          .from("sales_data")
-          .select("invoice_number, invoice_date, product_name, customer_code");
+        
+        let existingSales: any[] = [];
+        let page = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+        let fetchErrOccurred = false;
 
-        if (fetchErr) {
-          addLog(`[Deduplicate Warning] Select call failed, checking skipped: ${fetchErr.message}`);
+        while (hasMore) {
+          const start = page * pageSize;
+          const end = start + pageSize - 1;
+          const { data, error: fetchErr } = await sb
+            .from("sales_data")
+            .select("invoice_number, invoice_date, product_name, customer_code")
+            .range(start, end);
+
+          if (fetchErr) {
+            addLog(`[Deduplicate Warning] Select call failed, checking skipped: ${fetchErr.message}`);
+            fetchErrOccurred = true;
+            break;
+          }
+
+          if (data && data.length > 0) {
+            existingSales = [...existingSales, ...data];
+            if (data.length < pageSize) {
+              hasMore = false;
+            } else {
+              page++;
+            }
+          } else {
+            hasMore = false;
+          }
         }
 
         const makeKey = (row: any) => {
@@ -191,7 +223,7 @@ export default function UploadCenter({
           return `${invNo}|||${invDate}|||${prod}|||${cust}`;
         };
 
-        const existingKeys = new Set((existingSales || []).map(makeKey));
+        const existingKeys = new Set(existingSales.map(makeKey));
         addLog(`[Deduplicate] Found ${existingKeys.size} historical invoice items in database.`);
 
         const toInsert: any[] = [];
@@ -206,12 +238,13 @@ export default function UploadCenter({
             
             const spName = (inv.salesperson || "").trim().toLowerCase();
             const matchedUser = (users || []).find(u => 
-              (u.name && u.name.trim().toLowerCase() === spName) ||
-              (u.email && u.email.trim().toLowerCase() === spName)
+              u.serverSynced === true &&
+              ((u.name && u.name.trim().toLowerCase() === spName) ||
+               (u.email && u.email.trim().toLowerCase() === spName))
             );
             
             // Select a real logged-in or seeded salesperson UUID as a fallback to avoid NULLs
-            const sPersons = (users || []).filter(u => u.role === "Salesperson" && u.id && u.id.includes("-"));
+            const sPersons = (users || []).filter(u => u.serverSynced === true && u.role === "Salesperson" && u.id && u.id.includes("-"));
             const defaultSpId = sPersons.length > 0 ? sPersons[0].id : null;
             
             const salesperson_id = (matchedUser && matchedUser.id && matchedUser.id.includes("-")) 
@@ -224,7 +257,7 @@ export default function UploadCenter({
 
             // Resolve manager ID via managerName lookup
             if (!manager_id && matchedUser && matchedUser.managerName) {
-              const mgr = (users || []).find(u => u.name && u.name.toLowerCase() === matchedUser.managerName?.toLowerCase());
+              const mgr = (users || []).find(u => u.serverSynced === true && u.name && u.name.toLowerCase() === matchedUser.managerName?.toLowerCase());
               if (mgr && mgr.id && mgr.id.includes("-")) {
                 manager_id = mgr.id;
               }
@@ -233,7 +266,7 @@ export default function UploadCenter({
             // High priority region-based supervisor fallback
             if (!manager_id) {
               const regionLower = (inv.region || matchedUser?.region || "West").trim().toLowerCase();
-              const supervisors = (users || []).filter(u => u.role === "Regional Manager" && u.id && u.id.includes("-"));
+              const supervisors = (users || []).filter(u => u.serverSynced === true && u.role === "Regional Manager" && u.id && u.id.includes("-"));
               const matchedRm = supervisors.find(u => u.region && u.region.toLowerCase() === regionLower);
               if (matchedRm) {
                 manager_id = matchedRm.id;
@@ -241,7 +274,7 @@ export default function UploadCenter({
                 manager_id = supervisors[0].id; // fallback to any supervisor
               } else {
                 // look for admin/director fallback
-                const boss = (users || []).find(u => (u.role === "Sales Director" || u.role === "Admin") && u.id && u.id.includes("-"));
+                const boss = (users || []).find(u => u.serverSynced === true && (u.role === "Sales Director" || u.role === "Admin") && u.id && u.id.includes("-"));
                 manager_id = boss ? boss.id : null;
               }
             }
@@ -435,7 +468,7 @@ export default function UploadCenter({
       // ==========================================
       // BUDGET TARGETS BATCH INSERT ENGINE
       // ==========================================
-      else {
+      else if (activeTab === "budget") {
         parsedCount = stagedBudgets.length;
         addLog(`[Budget] Loaded ${parsedCount} salesperson budget spreadsheet cells.`);
 
@@ -464,7 +497,7 @@ export default function UploadCenter({
         for (let idx = 0; idx < chunks.length; idx++) {
           const chunk = chunks[idx];
           addLog(`[Budget] Inserting chunk ${idx + 1} of ${chunks.length} targets...`);
-          const { error } = await sb.from("budget_data").insert(chunk);
+          const { error } = await sb!.from("budget_data").insert(chunk);
           if (error) {
             failedCountAcc += chunk.length;
             addLog(`[Budget FAIL] Batch ${idx + 1} failed: ${error.message}`);
@@ -476,7 +509,7 @@ export default function UploadCenter({
         }
 
         addLog(`[Budget] Sinking upload audit metadata summary...`);
-        await sb.from("upload_audit_logs").insert({
+        await sb!.from("upload_audit_logs").insert({
           file_name: activeFile ? activeFile.name : `Budgets_Manual_Upload_${Date.now()}.xlsx`,
           file_type: "Budget Targets",
           uploaded_by: currentUser.name || currentUser.email || "System Operator",
@@ -503,6 +536,57 @@ export default function UploadCenter({
             type: "error",
             message: "Upload failed. Check logs.",
             details: ["All rows rejected or zero employees matched by names within sheet."]
+          });
+        }
+      }
+
+      // ==========================================
+      // SALES TEAM USERS BATCH INSERT ENGINE
+      // ==========================================
+      else if (activeTab === "users") {
+        parsedCount = stagedUsers.length;
+        addLog(`[Pipeline] Triggering bulk users ingestion pipeline for ${parsedCount} users...`);
+
+        try {
+          if (onSaveUsersBulk) {
+            const result = await onSaveUsersBulk(stagedUsers);
+            const success = typeof result === "boolean" ? result : result?.success;
+            const errorMsg = (typeof result === "object" && result?.error) ? result.error : "";
+            
+            if (success) {
+              insertedCountAcc = stagedUsers.length;
+              setInsertedCount(insertedCountAcc);
+              setUploadProgress(100);
+              addLog(`[Pipeline Success] Bulk imported and registered ${stagedUsers.length} user profiles!`);
+            } else {
+              throw new Error(errorMsg || "Bulk save operation returned an error.");
+            }
+          } else {
+            throw new Error("Bulk save prop handler not registered in client component.");
+          }
+        } catch (uErr: any) {
+          failedCountAcc = stagedUsers.length;
+          setFailedCount(failedCountAcc);
+          addLog(`[CRITICAL ERROR] Bulk users ingestion failed: ${uErr.message}`);
+          throw uErr;
+        }
+
+        if (insertedCountAcc > 0) {
+          setUploadStatus({
+            type: "committed",
+            message: "Upload completed successfully",
+            details: [
+              `Successfully imported and registered ${insertedCountAcc} sales team members!`,
+              `Any offline cached users have been healed and synchronized.`
+            ]
+          });
+          setStagedUsers([]);
+          setActiveFile(null);
+        } else {
+          setUploadStatus({
+            type: "error",
+            message: "Upload failed. Check logs.",
+            details: ["All rows rejected or bulk ingestion failed."]
           });
         }
       }
@@ -568,9 +652,15 @@ export default function UploadCenter({
             throw new Error("Spreadsheet appears to be empty. No records detected.");
           }
           validateAndProcessSales(jsonData, companyFromA1);
-        } else {
+        } else if (activeTab === "budget") {
           // Budget data: process all sheets in workbook
           validateAndProcessBudgetSheets(workbook);
+        } else {
+          // Users upload
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const jsonData: any[] = XLSX.utils.sheet_to_json(worksheet);
+          validateAndProcessUsers(jsonData);
         }
       } catch (err: any) {
         setUploadStatus({
@@ -1133,6 +1223,175 @@ export default function UploadCenter({
     });
   };
 
+  // ETL processing for sales team users spreadsheet
+  const validateAndProcessUsers = (rawRows: any[]) => {
+    if (rawRows.length === 0) {
+      setUploadStatus({
+        type: "error",
+        message: "Source sheet is empty",
+        details: ["Spreadsheet contains no rows below the heading range."]
+      });
+      return;
+    }
+
+    try {
+      // Validate headers case-insensitively
+      const sampleRow = rawRows[0];
+      const columns = Object.keys(sampleRow);
+      
+      const findCol = (names: string[]) => {
+        return columns.find(c => names.some(n => c.trim().toLowerCase() === n.toLowerCase().trim()));
+      };
+
+      // Mappings for both old format and new format
+      const colName = findCol(["employee_name", "employee name", "name"]);
+      const colCode = findCol(["employee_code", "employee code", "code"]);
+      const colEmail = findCol(["email", "email address", "corporate email"]);
+      const colRole = findCol(["role", "post", "role level", "security role"]);
+      const colTerritory = findCol(["territory", "location", "territory group scope", "sub group"]);
+      const colRegion = findCol(["region", "zone", "group name", "name of group"]);
+      const colManager = findCol(["manager_id", "reporting manager", "manager", "manager name"]);
+      const colJoiningDate = findCol(["joining_date", "joining date", "date of joining"]);
+      const colStatus = findCol(["status", "is_active", "active", "approved"]);
+      const colPassword = findCol(["password", "set password"]); // only in old format, optional
+
+      const missingCols = [];
+      if (!colName) missingCols.push("employee_name / Employee Name");
+      if (!colEmail) missingCols.push("email");
+      if (!colRole) missingCols.push("role / Post");
+      if (!colTerritory) missingCols.push("territory / Location");
+      if (!colRegion) missingCols.push("region / Region");
+      if (!colManager) missingCols.push("manager_id / Reporting Manager");
+
+      if (missingCols.length > 0) {
+        throw new Error(`Missing required columns: ${missingCols.join(", ")}`);
+      }
+
+      // Helper to normalize the role
+      const normalizeExcelRole = (postVal: string): "Admin" | "Sales Director" | "Regional Manager" | "Salesperson" | null => {
+        const lower = postVal.trim().toLowerCase().replace(/[^a-z]+/g, "");
+        if (lower === "admin" || lower === "administrator") return "Admin";
+        if (lower === "salesdirector" || lower === "director") return "Sales Director";
+        if (lower === "regionalmanager" || lower === "rm" || lower === "manager") return "Regional Manager";
+        if (lower === "salesperson" || lower === "salesrep" || lower === "rep" || lower === "sales") return "Salesperson";
+        return null;
+      };
+
+      const validatedUsers: any[] = [];
+      const emailsSet = new Set<string>();
+
+      // Row numbers are 2-indexed since row 1 is header
+      for (let i = 0; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        const rowNum = i + 2;
+
+        const name = String(row[colName!] || "").trim();
+        const email = String(row[colEmail!] || "").trim();
+        const roleVal = String(row[colRole!] || "").trim();
+        const territory = String(row[colTerritory!] || "").trim();
+        const region = String(row[colRegion!] || "").trim();
+        const managerRaw = String(row[colManager!] || "").trim();
+        
+        // Optional columns
+        const code = colCode ? String(row[colCode] || "").trim() : "";
+        const statusVal = colStatus ? String(row[colStatus] || "").trim() : "";
+        const password = colPassword ? String(row[colPassword] || "").trim() : "password123";
+
+        // 1. Check required fields
+        if (!name || !email || !roleVal || !territory || !region || !managerRaw) {
+          const missingFields = [];
+          if (!name) missingFields.push("employee_name");
+          if (!email) missingFields.push("email");
+          if (!roleVal) missingFields.push("role");
+          if (!territory) missingFields.push("territory");
+          if (!region) missingFields.push("region");
+          if (!managerRaw) missingFields.push("manager_id");
+          throw new Error(`Row ${rowNum}: Missing required fields: ${missingFields.join(", ")}`);
+        }
+
+        // 2. Validate email format
+        if (!email.includes("@") || email.split("@")[1].length < 3) {
+          throw new Error(`Row ${rowNum}: Invalid email format: "${email}"`);
+        }
+
+        // 3. Check for duplicate emails within the excel sheet itself
+        const emailLower = email.toLowerCase();
+        if (emailsSet.has(emailLower)) {
+          throw new Error(`Row ${rowNum}: Duplicate email "${email}" detected inside the Excel sheet.`);
+        }
+        emailsSet.add(emailLower);
+
+        // 4. Check for duplicate email against existing users in the system
+        const existingUser = users.find(u => u.email.trim().toLowerCase() === emailLower);
+        if (existingUser) {
+          throw new Error(`Row ${rowNum}: User with email "${email}" already exists in the system directory.`);
+        }
+
+        // 5. Normalize Role
+        const role = normalizeExcelRole(roleVal);
+        if (!role) {
+          throw new Error(`Row ${rowNum}: Invalid role "${roleVal}". Must map to Admin, Sales Director, Regional Manager, or Salesperson.`);
+        }
+
+        // Validate manager constraints (compulsory except for Admin and Sales Director)
+        if (role !== "Admin" && role !== "Sales Director") {
+          if (!managerRaw || managerRaw.toLowerCase() === "none" || managerRaw.toLowerCase() === "null") {
+            throw new Error(`Row ${rowNum}: A manager must be specified for role "${role}".`);
+          }
+        }
+
+        // Resolve manager ID/name: managerRaw can be name, email, employee code, or database UUID.
+        const matchedManager = users.find(u => 
+          (u.name && u.name.trim().toLowerCase() === managerRaw.toLowerCase()) ||
+          (u.email && u.email.trim().toLowerCase() === managerRaw.toLowerCase()) ||
+          (u.salespersonCode && u.salespersonCode.trim().toLowerCase() === managerRaw.toLowerCase()) ||
+          (u.id && u.id.trim().toLowerCase() === managerRaw.toLowerCase())
+        );
+        const resolvedManagerName = matchedManager ? matchedManager.name : managerRaw;
+        const resolvedManagerId = matchedManager ? matchedManager.id : undefined;
+
+        // Map status: defaults to true (active) unless explicitly set to false/inactive/blocked
+        let approved = true;
+        if (statusVal) {
+          const sLower = statusVal.toLowerCase();
+          if (sLower === "inactive" || sLower === "blocked" || sLower === "false" || sLower === "0" || sLower === "disabled") {
+            approved = false;
+          }
+        }
+
+        validatedUsers.push({
+          name,
+          email,
+          password,
+          role,
+          region,
+          territory,
+          managerName: resolvedManagerName,
+          managerId: resolvedManagerId,
+          approved,
+          salespersonCode: code || (role === "Salesperson" ? `SP_${region[0] || 'X'}${Math.floor(Math.random() * 105)}` : undefined)
+        });
+      }
+
+      setStagedUsers(validatedUsers);
+      setUploadStatus({
+        type: "success",
+        message: `Parsed and validated ${validatedUsers.length} Sales Team Users (Staged - Click Commit Below to Save)`,
+        details: [
+          `Found ${validatedUsers.length} valid employee rows.`,
+          `No duplicate email ids or missing parameters detected.`
+        ]
+      });
+    } catch (err: any) {
+      setUploadStatus({
+        type: "error",
+        message: "Spreadsheet validation failed",
+        details: [err.message || "Failed to process user spreadsheet rows."]
+      });
+      setStagedUsers([]);
+    }
+  };
+
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setDragActive(true);
@@ -1204,39 +1463,73 @@ export default function UploadCenter({
 
       {/* Target Module Selector */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-155 dark:border-slate-800 p-4 md:p-6 shadow-xs transition-colors">
-        <div className="flex border-b border-gray-100 dark:border-slate-800 pb-3 mb-5 overflow-x-auto whitespace-nowrap scrollbar-none gap-2">
+        <div className="flex flex-wrap border-b border-gray-100 dark:border-slate-800 pb-3 mb-5 gap-2">
           <button
             disabled={!getSupabase()}
-            onClick={() => { setActiveTab("sales"); setUploadStatus({ type: "idle", message: "" }); }}
-            className={`pb-2 px-3 md:px-4 text-xs font-bold border-b-2 transition cursor-pointer ${
+            onClick={() => { 
+              setActiveTab("sales"); 
+              setUploadStatus({ type: "idle", message: "" }); 
+              setStagedInvoices([]);
+              setStagedBudgets([]);
+              setStagedUsers([]);
+              setActiveFile(null);
+            }}
+            className={`pb-2 px-3 md:px-4 text-xs font-bold border-b-2 transition cursor-pointer flex items-center gap-1.5 ${
               activeTab === "sales" 
-                ? "border-green-650 text-green-650 dark:text-green-400" 
+                ? "border-green-650 text-green-650 dark:text-green-400 font-bold" 
                 : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200"
             } ${!getSupabase() ? "opacity-40 cursor-not-allowed" : ""}`}
           >
-            Invoice-Level Transactions Upload
+            <FileText className="w-3.5 h-3.5" />
+            Invoice Upload
           </button>
           <button
             disabled={!getSupabase()}
-            onClick={() => { setActiveTab("budget"); setUploadStatus({ type: "idle", message: "" }); }}
-            className={`pb-2 px-3 md:px-4 text-xs font-bold border-b-2 transition cursor-pointer ${
+            onClick={() => { 
+              setActiveTab("budget"); 
+              setUploadStatus({ type: "idle", message: "" }); 
+              setStagedInvoices([]);
+              setStagedBudgets([]);
+              setStagedUsers([]);
+              setActiveFile(null);
+            }}
+            className={`pb-2 px-3 md:px-4 text-xs font-bold border-b-2 transition cursor-pointer flex items-center gap-1.5 ${
               activeTab === "budget" 
-                ? "border-green-650 text-green-650 dark:text-green-400" 
+                ? "border-green-650 text-green-650 dark:text-green-400 font-bold" 
                 : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200"
             } ${!getSupabase() ? "opacity-40 cursor-not-allowed" : ""}`}
           >
-            Salesperson Target Spreadsheet Upload
+            <Target className="w-3.5 h-3.5" />
+            Budget Upload
+          </button>
+          <button
+            onClick={() => { 
+              setActiveTab("users"); 
+              setUploadStatus({ type: "idle", message: "" }); 
+              setStagedInvoices([]);
+              setStagedBudgets([]);
+              setStagedUsers([]);
+              setActiveFile(null);
+            }}
+            className={`pb-2 px-3 md:px-4 text-xs font-bold border-b-2 transition cursor-pointer flex items-center gap-1.5 ${
+              activeTab === "users" 
+                ? "border-green-650 text-green-650 dark:text-green-400 font-bold" 
+                : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200"
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            Team Users Bulk Upload (Excel)
           </button>
         </div>
 
         {/* Drag & Drop Canvas */}
         <div
-          onDragOver={getSupabase() ? onDragOver : (e) => e.preventDefault()}
-          onDragLeave={getSupabase() ? onDragLeave : (e) => e.preventDefault()}
-          onDrop={getSupabase() ? onDrop : (e) => e.preventDefault()}
-          onClick={getSupabase() ? triggerFileInput : undefined}
+          onDragOver={(activeTab === "users" || getSupabase()) ? onDragOver : (e) => e.preventDefault()}
+          onDragLeave={(activeTab === "users" || getSupabase()) ? onDragLeave : (e) => e.preventDefault()}
+          onDrop={(activeTab === "users" || getSupabase()) ? onDrop : (e) => e.preventDefault()}
+          onClick={(activeTab === "users" || getSupabase()) ? triggerFileInput : undefined}
           className={`border-2 border-dashed rounded-xl p-6 md:p-10 text-center transition ${
-            !getSupabase()
+            (activeTab !== "users" && !getSupabase())
               ? "border-red-200 dark:border-red-900/30 bg-red-50/5 dark:bg-red-950/5 cursor-not-allowed"
               : dragActive 
                 ? "border-green-500 bg-green-50/20 dark:bg-green-950/10 cursor-pointer" 
@@ -1248,23 +1541,23 @@ export default function UploadCenter({
             ref={fileInputRef}
             className="hidden"
             accept=".xlsx,.xls,.xlsm,.csv"
-            disabled={!getSupabase()}
+            disabled={activeTab !== "users" && !getSupabase()}
             onChange={(e) => e.target.files && handleFile(e.target.files[0])}
           />
           <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
-            !getSupabase()
+            (activeTab !== "users" && !getSupabase())
               ? "bg-red-50 dark:bg-red-950/40 text-red-500"
               : "bg-green-50 dark:bg-green-950/40 text-green-600 dark:text-green-400"
           }`}>
-            {!getSupabase() ? (
+            {(activeTab !== "users" && !getSupabase()) ? (
               <Lock className="w-5 h-5 text-red-500 dark:text-red-400" />
             ) : (
               <Upload className="w-6 h-6 animate-pulse" />
             )}
           </div>
           <h3 className="text-sm font-semibold">
-            {!getSupabase() ? (
-              <span className="text-red-650 dark:text-red-400">Database Upload Closed (Configuration Missing)</span>
+            {(activeTab !== "users" && !getSupabase()) ? (
+              <span className="text-red-655 dark:text-red-400">Database Upload Closed (Configuration Missing)</span>
             ) : (
               <span className="text-gray-905 dark:text-slate-100">
                 Drag and drop your spreadsheet here, or <span className="text-green-650 dark:text-green-450 hover:underline">browse files</span>
@@ -1272,33 +1565,57 @@ export default function UploadCenter({
             )}
           </h3>
           <p className="text-[11px] text-gray-450 dark:text-slate-400 mt-2">
-            {!getSupabase()
+            {(activeTab !== "users" && !getSupabase())
               ? "Please check your environment settings. Uploading is disabled until VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are specified."
               : "Supports Excel (.xlsx, .xls) and CSV. Max file upload size: 10MB."}
           </p>
         </div>
 
         {/* Guided Templates Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 border-t border-gray-100 dark:border-slate-800/80 pt-6">
-          <div className="p-4 bg-gray-50 dark:bg-slate-800/50 rounded-xl flex items-start gap-3 text-left">
-            <FileText className="w-5 h-5 text-gray-400 dark:text-slate-500 shrink-0 mt-0.5" />
-            <div>
-              <h4 className="text-xs font-bold text-gray-900 dark:text-slate-250">Format Guide: Casing & Cleansing</h4>
-              <p className="text-[10px] text-gray-600 dark:text-slate-400 mt-1 leading-relaxed font-sans">
-                Platform ETL pipeline automatically standardizes dealer names (e.g., standardizing "pune fert" and "PUNE fertilizers" as "Pune Fertilizers"), detects currency rates, calculates gross values, and ignores missing indices elegantly.
-              </p>
+        {activeTab === "users" ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 border-t border-gray-100 dark:border-slate-800/80 pt-6">
+            <div className="p-4 bg-gray-50 dark:bg-slate-800/50 rounded-xl flex items-start gap-3 text-left">
+              <FileText className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-xs font-bold text-gray-900 dark:text-slate-250">User Sheet Template Schema</h4>
+                <p className="text-[10px] text-gray-600 dark:text-slate-400 mt-1 leading-relaxed font-sans">
+                  The spreadsheet must have column headers in Row 1. Data starts from Row 2. Required columns (case-insensitive):
+                  <strong className="block text-slate-800 dark:text-slate-200 mt-1">Employee Name, Region, Post, Reporting Manager, Location, email, password</strong>
+                </p>
+              </div>
+            </div>
+            <div className="p-4 bg-gray-50 dark:bg-slate-800/50 rounded-xl flex items-start gap-3 text-left">
+              <ShieldCheck className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-xs font-bold text-gray-900 dark:text-slate-250">Role Mapping & Account Security</h4>
+                <p className="text-[10px] text-gray-600 dark:text-slate-400 mt-1 leading-relaxed font-sans">
+                  Duplicate email checking is strictly enforced (system directory and spreadsheet). <code className="bg-slate-205 dark:bg-slate-900 px-1 py-0.5 rounded text-[9.5px]">Post</code> values normalize to <em>Admin</em>, <em>Sales Director</em>, <em>Regional Manager</em>, or <em>Salesperson</em>. <code className="bg-slate-205 dark:bg-slate-900 px-1 py-0.5 rounded text-[9.5px]">Location</code> maps to territory.
+                </p>
+              </div>
             </div>
           </div>
-          <div className="p-4 bg-gray-50 dark:bg-slate-800/50 rounded-xl flex items-start gap-3 text-left">
-            <ShieldCheck className="w-5 h-5 text-gray-400 dark:text-slate-500 shrink-0 mt-0.5" />
-            <div>
-              <h4 className="text-xs font-bold text-gray-900 dark:text-slate-250">Strict Row Scoping Integration</h4>
-              <p className="text-[10px] text-gray-600 dark:text-slate-400 mt-1 leading-relaxed font-sans">
-                The corporate parent-child supervisor hierarchy (Sales Director → RMs → Salespeople → Dealers) will be derived programmatically from employee names and reporting managers within the sheet rows.
-              </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 border-t border-gray-100 dark:border-slate-800/80 pt-6">
+            <div className="p-4 bg-gray-50 dark:bg-slate-800/50 rounded-xl flex items-start gap-3 text-left">
+              <FileText className="w-5 h-5 text-gray-400 dark:text-slate-500 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-xs font-bold text-gray-900 dark:text-slate-250">Format Guide: Casing & Cleansing</h4>
+                <p className="text-[10px] text-gray-600 dark:text-slate-400 mt-1 leading-relaxed font-sans">
+                  Platform ETL pipeline automatically standardizes dealer names (e.g., standardizing "pune fert" and "PUNE fertilizers" as "Pune Fertilizers"), detects currency rates, calculates gross values, and ignores missing indices elegantly.
+                </p>
+              </div>
+            </div>
+            <div className="p-4 bg-gray-55/40 dark:bg-slate-800/50 rounded-xl flex items-start gap-3 text-left">
+              <ShieldCheck className="w-5 h-5 text-gray-400 dark:text-slate-500 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-xs font-bold text-gray-900 dark:text-slate-250">Strict Row Scoping Integration</h4>
+                <p className="text-[10px] text-gray-600 dark:text-slate-400 mt-1 leading-relaxed font-sans">
+                  The corporate parent-child supervisor hierarchy (Sales Director → RMs → Salespeople → Dealers) will be derived programmatically from employee names and reporting managers within the sheet rows.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Live Upload Feedback Alerts */}
         {uploadStatus.type !== "idle" && (
@@ -1332,8 +1649,8 @@ export default function UploadCenter({
           </div>
         )}
 
-        {/* Staged Data & Commit Changes To Database Button */}
-        {(stagedInvoices.length > 0 || stagedBudgets.length > 0) && (() => {
+        {/* Staged Data & Commit Changes To Database */}
+        {(stagedInvoices.length > 0 || stagedBudgets.length > 0 || stagedUsers.length > 0) && (() => {
           const getInvoiceKey = (inv: InvoiceItem) => {
             const company = (inv.company || "").trim().toLowerCase();
             const date = (inv.invoiceDate || "").trim().toLowerCase();
@@ -1377,7 +1694,9 @@ export default function UploadCenter({
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div className="bg-white/80 dark:bg-slate-900/60 p-2.5 rounded-xl border border-gray-150 dark:border-slate-800/80 text-center">
                       <div className="text-[10px] text-gray-500 font-sans font-medium">Total Staged</div>
-                      <div className="text-sm font-bold text-gray-950 dark:text-slate-100 mt-0.5">{activeTab === "sales" ? stagedInvoices.length : stagedBudgets.length}</div>
+                      <div className="text-sm font-bold text-gray-950 dark:text-slate-100 mt-0.5">
+                        {activeTab === "sales" ? stagedInvoices.length : activeTab === "budget" ? stagedBudgets.length : stagedUsers.length}
+                      </div>
                     </div>
                     <div className="bg-white/80 dark:bg-slate-900/60 p-2.5 rounded-xl border border-gray-150 dark:border-slate-800/80 text-center">
                       <div className="text-[10px] text-green-600 font-sans font-medium">Inserted successfully</div>
@@ -1419,14 +1738,45 @@ export default function UploadCenter({
                         <h4 className="text-xs font-bold text-gray-950 dark:text-slate-100">
                           Spreadsheet Data Staged Successfully!
                         </h4>
-                        <p className="text-[10px] text-gray-750 dark:text-slate-300 mt-0.5">
+                        <p className="text-[10px] text-gray-755 dark:text-slate-300 mt-0.5">
                           {stagedInvoices.length > 0 && `${stagedInvoices.length} Sales Voucher/Invoice records `}
                           {stagedBudgets.length > 0 && `${stagedBudgets.length} Budget Target records `}
+                          {stagedUsers.length > 0 && `${stagedUsers.length} User Profile records `}
                           ready to write. Click below to make these permanent on the database.
                         </p>
                       </div>
                     </div>
                   </div>
+
+                  {/* Users Preview Table */}
+                  {stagedUsers.length > 0 && (
+                    <div className="border border-gray-150 dark:border-slate-800 rounded-xl overflow-hidden max-h-[160px] overflow-y-auto mt-2">
+                      <table className="w-full text-[9.5px] text-left">
+                        <thead className="bg-gray-50 dark:bg-slate-850/80 text-gray-500 font-bold">
+                          <tr className="border-b border-gray-150 dark:border-slate-800">
+                            <th className="p-1.5">Name</th>
+                            <th className="p-1.5">Role</th>
+                            <th className="p-1.5">Email</th>
+                            <th className="p-1.5">Region</th>
+                            <th className="p-1.5">Location</th>
+                            <th className="p-1.5">Manager</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-slate-850 text-gray-700 dark:text-slate-300">
+                          {stagedUsers.map((pu, idx) => (
+                            <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/40">
+                              <td className="p-1.5 font-bold">{pu.name}</td>
+                              <td className="p-1.5 font-medium">{pu.role}</td>
+                              <td className="p-1.5 font-mono text-[9px]">{pu.email}</td>
+                              <td className="p-1.5">{pu.region}</td>
+                              <td className="p-1.5">{pu.territory}</td>
+                              <td className="p-1.5">{pu.managerName}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
 
                   {/* Duplicate Handling Options Card */}
                   {hasDuplicatesDetected && (

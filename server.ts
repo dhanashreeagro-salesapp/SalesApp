@@ -50,6 +50,15 @@ const sanitizeEnvVal = (val: string): string => {
   if (clean.startsWith("'") && clean.endsWith("'")) {
     clean = clean.slice(1, -1);
   }
+  clean = clean.trim();
+  if (clean.endsWith("/rest/v1/")) {
+    clean = clean.substring(0, clean.length - "/rest/v1/".length);
+  } else if (clean.endsWith("/rest/v1")) {
+    clean = clean.substring(0, clean.length - "/rest/v1".length);
+  }
+  if (clean.endsWith("/")) {
+    clean = clean.slice(0, -1);
+  }
   return clean.trim();
 };
 
@@ -85,6 +94,51 @@ function getSupabaseAdminClient() {
   }
 }
 
+async function fetchAllSalesFromSupabase(
+  sb: any,
+  selectStr: string = "*",
+  orderOptions?: { column: string; ascending?: boolean },
+  isNullFilter?: string
+): Promise<any[]> {
+  let allRows: any[] = [];
+  let page = 0;
+  const pageSize = 1000;
+  let hasMore = true;
+
+  while (hasMore) {
+    const start = page * pageSize;
+    const end = start + pageSize - 1;
+    let query = sb.from("sales_data").select(selectStr);
+    
+    if (isNullFilter) {
+      query = query.is(isNullFilter, null);
+    }
+    
+    if (orderOptions) {
+      query = query.order(orderOptions.column, { ascending: orderOptions.ascending !== false });
+    }
+    
+    query = query.range(start, end);
+
+    const { data, error } = await query;
+    if (error) {
+      throw error;
+    }
+
+    if (data && data.length > 0) {
+      allRows = [...allRows, ...data];
+      if (data.length < pageSize) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    } else {
+      hasMore = false;
+    }
+  }
+  return allRows;
+}
+
 async function syncLocalToSupabase(scope: "users" | "invoices" | "budgets" | "all" = "all") {
   const sb = getSupabaseAdminClient();
   if (!sb) return;
@@ -99,16 +153,34 @@ async function syncLocalToSupabase(scope: "users" | "invoices" | "budgets" | "al
 
     // 1. Sync users
     if ((scope === "all" || scope === "users") && localUsers.length > 0) {
-      const userRows = localUsers.map(u => ({
-        id: u.id && u.id.includes("user_") ? undefined : u.id,
-        name: u.name,
-        email: u.email,
-        role: u.role,
-        region: u.region || "",
-        territory: u.territory || "",
-        employee_code: u.salespersonCode || "",
-        is_active: u.approved !== false
-      })).filter(u => u.email);
+      // Sort users by role priority to avoid foreign key violations (manager must exist first)
+      const rolePriority: Record<string, number> = {
+        "Admin": 1,
+        "Sales Director": 2,
+        "Regional Manager": 3,
+        "Salesperson": 4
+      };
+      
+      const sortedLocalUsers = [...localUsers].sort((a, b) => (rolePriority[a.role] || 5) - (rolePriority[b.role] || 5));
+
+      const userRows = sortedLocalUsers.map(u => {
+        // Resolve manager_id
+        const mgr = sortedLocalUsers.find(m => m.name === u.managerName);
+        const manager_id = mgr ? (mgr.id && !mgr.id.includes("user_") ? mgr.id : null) : null;
+
+        return {
+          id: u.id && u.id.includes("user_") ? undefined : u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+          region: u.region || "",
+          territory: u.territory || "",
+          employee_code: u.salespersonCode || "",
+          is_active: u.approved !== false,
+          password: u.password || "password123",
+          manager_id: manager_id
+        };
+      }).filter(u => u.email);
 
       for (const row of userRows) {
         const { error: ue } = await sb.from("users").upsert(row, { onConflict: "email" });
@@ -241,8 +313,7 @@ async function loadDB() {
       const { data: usersData, error: ue } = await sb.from("users").select("*");
       if (ue) throw ue;
 
-      const { data: salesData, error: se } = await sb.from("sales_data").select("*");
-      if (se) throw se;
+      const salesData = await fetchAllSalesFromSupabase(sb, "*");
 
       const { data: budgetsData, error: be } = await sb.from("budget_data").select(`
         id,
@@ -488,8 +559,7 @@ app.get("/api/admin/debug-stats", async (req, res) => {
   }
   try {
     // Select essential columns from active dataset bypassing RLS
-    const { data: allSales, error: errs } = await sb.from("sales_data").select("company, invoice_date");
-    if (errs) throw errs;
+    const allSales = await fetchAllSalesFromSupabase(sb, "company, invoice_date");
 
     const totalRows = allSales?.length || 0;
     
@@ -551,8 +621,7 @@ app.get("/api/db", async (req, res) => {
       }));
 
       // Fetch Sales Data
-      const { data: dbSales, error: se } = await sb.from("sales_data").select("*").order("invoice_date", { ascending: false });
-      if (se) throw se;
+      const dbSales = await fetchAllSalesFromSupabase(sb, "*", { column: "invoice_date", ascending: false });
       const formattedInvoices = (dbSales || []).map((row: any) => ({
         id: row.id,
         invoiceDate: row.invoice_date,
@@ -673,6 +742,10 @@ app.post("/api/users/save", async (req, res) => {
   let supabaseSynced = false;
   if (sb) {
     try {
+      // Resolve manager_id
+      const mgr = localUsers.find(u => u.name === updatedUser.managerName);
+      const manager_id = mgr ? (mgr.id && !mgr.id.startsWith("user_") ? mgr.id : null) : null;
+
       const userRow = {
         // Only strip if it's the client-side mock string
         id: updatedUser.id.startsWith("user_") ? undefined : updatedUser.id,
@@ -682,7 +755,9 @@ app.post("/api/users/save", async (req, res) => {
         region: updatedUser.region || "",
         territory: updatedUser.territory || "",
         employee_code: updatedUser.salespersonCode || "",
-        is_active: updatedUser.approved !== false
+        is_active: updatedUser.approved !== false,
+        password: updatedUser.password || "password123",
+        manager_id: manager_id
       };
 
       const { data: upserted, error: ue } = await sb.from("users").upsert(userRow, { onConflict: "email" }).select();
@@ -709,6 +784,108 @@ app.post("/api/users/save", async (req, res) => {
     user: initiator?.name || "System Admin",
     action: indexToUpdate >= 0 ? "Edit User Profile" : "Create User Profile",
     details: `Managed profile for ${updatedUser.name} (${updatedUser.role}). DB Synced: ${supabaseSynced}.`,
+    status: "Success"
+  });
+
+  saveDB("users");
+  res.json({ success: true, users: localUsers });
+});
+
+// Bulk Create/Update User profiles (used by Excel User upload)
+app.post("/api/users/save-bulk", async (req, res) => {
+  const { users: inputUsers, initiator } = req.body;
+  if (!Array.isArray(inputUsers)) {
+    return res.status(400).json({ error: "Missing or invalid users array" });
+  }
+
+  // 1. Strict duplicate email checks in the upload list itself
+  const emailsInUpload = new Set<string>();
+  for (const u of inputUsers) {
+    if (!u.email) continue;
+    const emailLower = u.email.trim().toLowerCase();
+    if (emailsInUpload.has(emailLower)) {
+      return res.status(400).json({ error: `Duplicate email detected in the uploaded list: ${u.email}` });
+    }
+    emailsInUpload.add(emailLower);
+  }
+
+  // 2. Strict duplicate email checks against existing users
+  for (const u of inputUsers) {
+    if (!u.email) continue;
+    const emailLower = u.email.trim().toLowerCase();
+    const existingMatch = localUsers.find(lu => lu.email.trim().toLowerCase() === emailLower && lu.id !== u.id);
+    if (existingMatch) {
+      return res.status(400).json({ error: `A user with email "${u.email}" already exists in the database.` });
+    }
+  }
+
+  const updatedUsers: any[] = [];
+  for (const user of inputUsers) {
+    if (!user || !user.email) continue;
+    const emailLower = user.email.trim().toLowerCase();
+    
+    const updatedUser = {
+      ...user,
+      id: user.id || `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      password: user.password || "password123"
+    };
+
+    let indexToUpdate = localUsers.findIndex(u => u.email.trim().toLowerCase() === emailLower);
+    if (indexToUpdate >= 0) {
+      localUsers[indexToUpdate] = updatedUser;
+    } else {
+      localUsers.push(updatedUser);
+    }
+    updatedUsers.push(updatedUser);
+  }
+
+  // Sync to Supabase directly first if available
+  const sb = getSupabaseAdminClient();
+  let supabaseSynced = false;
+  if (sb) {
+    try {
+      // Sort users by role priority to avoid foreign key violations (manager must exist first)
+      const rolePriority: Record<string, number> = {
+        "Admin": 1,
+        "Sales Director": 2,
+        "Regional Manager": 3,
+        "Salesperson": 4
+      };
+      const sortedUsers = [...updatedUsers].sort((a, b) => (rolePriority[a.role] || 5) - (rolePriority[b.role] || 5));
+
+      const rows = sortedUsers.map(u => {
+        // Resolve manager_id
+        const mgr = localUsers.find(m => m.name === u.managerName);
+        const manager_id = mgr ? (mgr.id && !mgr.id.startsWith("user_") ? mgr.id : null) : null;
+        
+        return {
+          id: u.id && u.id.startsWith("user_") ? undefined : u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+          region: u.region || "",
+          territory: u.territory || "",
+          employee_code: u.salespersonCode || "",
+          is_active: u.approved !== false,
+          password: u.password || "password123",
+          manager_id: manager_id
+        };
+      });
+
+      const { error: ue } = await sb.from("users").upsert(rows, { onConflict: "email" });
+      if (ue) throw ue;
+      supabaseSynced = true;
+    } catch (err: any) {
+      console.warn("Suppressed bulk profile write failure to Supabase, continuing locally:", err.message);
+    }
+  }
+
+  const timestamp = new Date().toISOString();
+  localAuditLogs.unshift({
+    timestamp,
+    user: initiator?.name || "System Admin",
+    action: "Bulk Import Users",
+    details: `Successfully imported ${updatedUsers.length} user profiles. DB Synced: ${supabaseSynced}.`,
     status: "Success"
   });
 
@@ -937,8 +1114,7 @@ app.post("/api/db/import", async (req, res) => {
       console.log(`Supabase-Upload: Compiling matching entries to resolve duplicates (Strategy: ${duplicateAction})...`);
       
       // Step A: Pull the existing invoice rows to detect duplicates
-      const { data: existingSales, error: ese } = await sb.from("sales_data").select("id, invoice_number, invoice_date, product_name, customer_code");
-      if (ese) throw ese;
+      const existingSales = await fetchAllSalesFromSupabase(sb, "id, invoice_number, invoice_date, product_name, customer_code");
 
       // Map row signature keys: invoice_number + invoice_date + product_name + customer_code
       const makeCompositeKey = (row: any) => {
@@ -1347,7 +1523,7 @@ app.get("/api/admin/integrity-check", async (req, res) => {
     const { count: salesCount } = await sb.from("sales_data").select("*", { count: "exact", head: true });
     const { count: budgetsCount } = await sb.from("budget_data").select("*", { count: "exact", head: true });
 
-    const { data: salesList } = await sb.from("sales_data").select("id, invoice_date, invoice_number, product_name, customer_code, salesperson");
+    const salesList = await fetchAllSalesFromSupabase(sb, "id, invoice_date, invoice_number, product_name, customer_code, salesperson");
     const { data: budgetsList } = await sb.from("budget_data").select("id, product_name, salesperson_id, financial_year, month");
     const { data: usersList } = await sb.from("users").select("id, name, email");
 
@@ -1489,7 +1665,7 @@ app.post("/api/admin/clean-duplicates", async (req, res) => {
   if (!sb) return res.status(400).json({ error: "Supabase client not initialized." });
 
   try {
-    const { data: salesList } = await sb.from("sales_data").select("id, invoice_number, invoice_date, product_name, customer_code");
+    const salesList = await fetchAllSalesFromSupabase(sb, "id, invoice_number, invoice_date, product_name, customer_code");
     if (!salesList || salesList.length === 0) return res.json({ success: true, count: 0 });
 
     const keyMap = new Map<string, string[]>();
@@ -1536,7 +1712,7 @@ app.post("/api/admin/align-orphans", async (req, res) => {
 
   try {
     const { data: usersData } = await sb.from("users").select("id, name");
-    const { data: salesWithNoRepId } = await sb.from("sales_data").select("id, salesperson").is("salesperson_id", null);
+    const salesWithNoRepId = await fetchAllSalesFromSupabase(sb, "id, salesperson", undefined, "salesperson_id");
 
     if (!usersData || !salesWithNoRepId || salesWithNoRepId.length === 0) {
       return res.json({ success: true, fixedCount: 0 });

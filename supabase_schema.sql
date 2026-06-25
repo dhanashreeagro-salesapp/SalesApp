@@ -201,6 +201,11 @@ create policy "Allow users to edit their own profile basic details"
 on public.users for update 
 using (email = auth.email());
 
+create policy "Allow users to insert their own profile" 
+on public.users for insert 
+with check (auth.uid() = id);
+
+
 -- 2. PRODUCTS POLICIES
 create policy "Allow authenticated users to read product catalog"
 on public.products for select

@@ -17,6 +17,7 @@ export interface UserProfile {
   managerId?: string;    // Reporting manager ID
   password?: string;
   approved?: boolean;
+  serverSynced?: boolean;
 }
 
 export interface InvoiceItem {

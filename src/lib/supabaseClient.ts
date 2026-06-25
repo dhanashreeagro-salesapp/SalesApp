@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { InvoiceItem, BudgetItem, UserProfile, EmailLog } from "../types";
+import { InvoiceItem, BudgetItem, UserProfile, EmailLog, AuditLog } from "../types";
 
 // Read from Vite environment variables as per requirements
 const sanitizeEnvVal = (val: string): string => {
@@ -10,6 +10,15 @@ const sanitizeEnvVal = (val: string): string => {
   }
   if (clean.startsWith("'") && clean.endsWith("'")) {
     clean = clean.slice(1, -1);
+  }
+  clean = clean.trim();
+  if (clean.endsWith("/rest/v1/")) {
+    clean = clean.substring(0, clean.length - "/rest/v1/".length);
+  } else if (clean.endsWith("/rest/v1")) {
+    clean = clean.substring(0, clean.length - "/rest/v1".length);
+  }
+  if (clean.endsWith("/")) {
+    clean = clean.slice(0, -1);
   }
   return clean.trim();
 };
@@ -206,13 +215,39 @@ export async function supabaseSignIn(email: string, password: string): Promise<{
     .eq("email", email)
     .single();
 
-  if (profileError) {
-    console.warn("Auth login succeeded but database profile row was missing:", profileError);
+  let userProfile = profile;
+  if (profileError || !profile) {
+    console.warn("Auth login succeeded but database profile row was missing. Attempting auto-recreation...", profileError?.message);
+    const fallbackRole = data.user.user_metadata?.role || "Salesperson";
+    const fallbackName = data.user.user_metadata?.name || data.user.email?.split("@")[0] || "Anonymous";
+
+    const newProfile = {
+      id: data.user.id,
+      name: fallbackName,
+      email: data.user.email!,
+      role: fallbackRole,
+      is_active: true,
+      territory: "",
+      region: ""
+    };
+
+    const { data: inserted, error: insertErr } = await sb
+      .from("users")
+      .insert(newProfile)
+      .select()
+      .single();
+
+    if (!insertErr && inserted) {
+      userProfile = inserted;
+      console.log("Successfully recreated missing user profile for", data.user.email);
+    } else {
+      console.error("Failed to auto-recreate missing user profile:", insertErr?.message || "Unknown error");
+    }
   }
 
   return {
     user: data.user,
-    profile: profile ? mapUserRow(profile) : null
+    profile: userProfile ? mapUserRow(userProfile) : null
   };
 }
 
@@ -247,19 +282,28 @@ export async function fetchUsersFromSupabase(): Promise<UserProfile[]> {
   return (data || []).map(mapUserRow);
 }
 
-export async function saveUserProfileToSupabase(user: Partial<UserProfile> & { password?: string }): Promise<boolean> {
+export async function saveUserProfileToSupabase(user: Partial<UserProfile> & { password?: string }, allUsers?: UserProfile[]): Promise<boolean> {
   const sb = getSupabase();
   if (!sb) return false;
 
-  const row = {
+  let manager_id = user.managerId || null;
+  if (!manager_id && user.managerName && allUsers) {
+    const mgr = allUsers.find(u => u.name.trim().toLowerCase() === user.managerName!.trim().toLowerCase());
+    if (mgr) {
+      manager_id = mgr.id;
+    }
+  }
+
+  const row: any = {
     name: user.name,
     email: user.email,
-    password: user.password, // add password field
+    password: user.password || "password123",
     role: user.role,
     territory: user.territory || "",
     region: user.region || "",
     employee_code: user.salespersonCode || "",
-    is_active: user.approved !== false
+    is_active: user.approved !== false,
+    manager_id: manager_id
   };
 
   const { error } = await sb
@@ -276,6 +320,44 @@ export async function saveUserProfileToSupabase(user: Partial<UserProfile> & { p
   return true;
 }
 
+export async function saveUserProfilesToSupabase(usersList: Partial<UserProfile>[], allUsers?: UserProfile[]): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+
+  // Resolve manager_ids in bulk
+  const rows = usersList.map(user => {
+    let manager_id = user.managerId || null;
+    if (!manager_id && user.managerName && allUsers) {
+      const mgr = allUsers.find(u => u.name.trim().toLowerCase() === user.managerName!.trim().toLowerCase());
+      if (mgr) {
+        manager_id = mgr.id;
+      }
+    }
+    return {
+      id: user.id || undefined,
+      name: user.name,
+      email: user.email,
+      password: user.password || "password123",
+      role: user.role,
+      territory: user.territory || "",
+      region: user.region || "",
+      employee_code: user.salespersonCode || "",
+      is_active: user.approved !== false,
+      manager_id: manager_id
+    };
+  });
+
+  const { error } = await sb
+    .from("users")
+    .upsert(rows);
+
+  if (error) {
+    console.error("Error upserting bulk user profiles into Supabase:", error);
+    return false;
+  }
+  return true;
+}
+
 // ==================================================
 // SALES DATA RETRIEVAL
 // ==================================================
@@ -284,17 +366,38 @@ export async function fetchSalesDataFromSupabase(): Promise<InvoiceItem[]> {
   const sb = getSupabase();
   if (!sb) return [];
 
-  const { data, error } = await sb
-    .from("sales_data")
-    .select("*")
-    .order("invoice_date", { ascending: false });
+  let allRows: any[] = [];
+  let page = 0;
+  const pageSize = 1000;
+  let hasMore = true;
 
-  if (error) {
-    console.error("Error fetching invoices from Supabase:", error);
-    return [];
+  while (hasMore) {
+    const start = page * pageSize;
+    const end = start + pageSize - 1;
+    const { data, error } = await sb
+      .from("sales_data")
+      .select("*")
+      .order("invoice_date", { ascending: false })
+      .range(start, end);
+
+    if (error) {
+      console.error("Error fetching invoices from Supabase:", error);
+      break;
+    }
+
+    if (data && data.length > 0) {
+      allRows = [...allRows, ...data];
+      if (data.length < pageSize) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    } else {
+      hasMore = false;
+    }
   }
 
-  return (data || []).map(mapSalesRow);
+  return allRows.map(mapSalesRow);
 }
 
 export async function insertSalesDataChunks(invoices: InvoiceItem[]): Promise<boolean> {
@@ -550,7 +653,8 @@ export async function fetchEmailLogsFromSupabase(): Promise<EmailLog[]> {
     emailSentAt: e.email_sent_at,
     dateSent: e.email_sent_at,
     status: e.status,
-    attachments: e.attachments || []
+    attachments: e.attachments || [],
+    triggerType: "Scheduled"
   }));
 }
 
@@ -600,9 +704,33 @@ export async function fetchDatabaseStatsFromSupabase(): Promise<any> {
 
   try {
     const { count: totalInvoices } = await sb.from("sales_data").select("*", { count: "exact", head: true });
-    const { data: rawInvoices, error: salesErr } = await sb.from("sales_data").select("invoice_date, company, product_category");
     
-    if (salesErr) throw salesErr;
+    let rawInvoices: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const start = page * pageSize;
+      const end = start + pageSize - 1;
+      const { data, error: salesErr } = await sb
+        .from("sales_data")
+        .select("invoice_date, company, product_category")
+        .range(start, end);
+
+      if (salesErr) throw salesErr;
+
+      if (data && data.length > 0) {
+        rawInvoices = [...rawInvoices, ...data];
+        if (data.length < pageSize) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
 
     const companyCounts: Record<string, number> = {};
     const yearCounts: Record<string, number> = {};
@@ -647,28 +775,161 @@ export async function runIntegrityCheckOnSupabase(): Promise<any> {
   if (!sb) return null;
 
   try {
-    const { data: invoices } = await sb.from("sales_data").select("id, salesperson, salesperson_id, invoice_number, invoice_date, product_name, customer_code");
-    const { data: users } = await sb.from("users").select("id, name, email");
+    const { count: salesCount } = await sb.from("sales_data").select("*", { count: "exact", head: true });
+    const { count: budgetsCount } = await sb.from("budget_data").select("*", { count: "exact", head: true });
 
-    const orphans = (invoices || []).filter(inv => !inv.salesperson_id);
-    
-    const duplicates: any[] = [];
-    const seen = new Map<string, string>();
-    (invoices || []).forEach(inv => {
-      const key = `${inv.invoice_number}-${inv.invoice_date}-${inv.product_name}-${inv.customer_code}`.toLowerCase();
-      if (seen.has(key)) {
-        duplicates.push({ id: inv.id, key });
+    let invoices: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const start = page * pageSize;
+      const end = start + pageSize - 1;
+      const { data, error: salesErr } = await sb
+        .from("sales_data")
+        .select("id, salesperson, salesperson_id, invoice_number, invoice_date, product_name, customer_code")
+        .range(start, end);
+
+      if (salesErr) throw salesErr;
+
+      if (data && data.length > 0) {
+        invoices = [...invoices, ...data];
+        if (data.length < pageSize) {
+          hasMore = false;
+        } else {
+          page++;
+        }
       } else {
-        seen.set(key, inv.id);
+        hasMore = false;
+      }
+    }
+
+    const { data: budgetsList } = await sb.from("budget_data").select("id, product_name, salesperson_id, financial_year, month");
+    const { data: usersList } = await sb.from("users").select("id, name, email");
+
+    const budgets = budgetsList || [];
+    const dbUsers = usersList || [];
+    const activeStaffSet = new Set(dbUsers.map(u => (u.name || "").trim().toLowerCase()));
+
+    // Diagnostic A: Redundancies / Duplicate rows detector
+    const keyMap = new Map<string, string[]>();
+    invoices.forEach(inv => {
+      const key = `${(inv.invoice_number || "").trim()}|||${inv.invoice_date || ""}|||${(inv.product_name || "").trim()}|||${(inv.customer_code || "").trim()}`;
+      if (!keyMap.has(key)) {
+        keyMap.set(key, []);
+      }
+      keyMap.get(key)!.push(inv.id);
+    });
+
+    let duplicateGroupsCount = 0;
+    let duplicateRowsTotal = 0;
+    const sampleDuplicatesList: any[] = [];
+
+    for (const [key, ids] of keyMap.entries()) {
+      if (ids.length > 1) {
+        duplicateGroupsCount++;
+        duplicateRowsTotal += (ids.length - 1);
+        if (sampleDuplicatesList.length < 15) {
+          const s = key.split("|||");
+          sampleDuplicatesList.push({
+            invoiceNumber: s[0],
+            invoiceDate: s[1],
+            productName: s[2],
+            customerCode: s[3],
+            count: ids.length,
+            ids
+          });
+        }
+      }
+    }
+
+    // Diagnostic B: Missing Rows / Empty Business days
+    const missingRowsList: string[] = [];
+    const salesByPersonMonthYear = new Set<string>();
+    invoices.forEach(inv => {
+      if (!inv.invoice_date || !inv.salesperson) return;
+      try {
+        const d = new Date(inv.invoice_date);
+        const m = d.toLocaleString("default", { month: "long" });
+        const yr = d.getFullYear();
+        const fy = yr === 2025 || (yr === 2026 && d.getMonth() < 3) ? "2025-26" : "2024-25";
+        salesByPersonMonthYear.add(`${inv.salesperson.trim().toLowerCase()}|||${m.toLowerCase()}|||${fy}`);
+      } catch (_) {}
+    });
+
+    budgets.forEach(b => {
+      const usr = dbUsers.find(u => u.id === b.salesperson_id);
+      if (usr) {
+        const key = `${(usr.name || "").trim().toLowerCase()}|||${(b.month || "").trim().toLowerCase()}|||${(b.financial_year || "").trim().toLowerCase()}`;
+        if (!salesByPersonMonthYear.has(key)) {
+          const rowStr = `Representative "${usr.name}" has allocated budgets in territory targets for ${b.month} (${b.financial_year}) but registered 0 matching ledger invoices.`;
+          if (missingRowsList.indexOf(rowStr) === -1 && missingRowsList.length < 10) {
+            missingRowsList.push(rowStr);
+          }
+        }
+      }
+    });
+
+    // Diagnostic C: Orphaned sales reps mappings
+    const orphanedInvoices: any[] = [];
+    invoices.forEach(inv => {
+      if (inv.salesperson && !activeStaffSet.has(inv.salesperson.trim().toLowerCase())) {
+        if (orphanedInvoices.length < 15) {
+          orphanedInvoices.push({
+            id: inv.id,
+            invoiceNumber: inv.invoice_number,
+            salesperson: inv.salesperson
+          });
+        }
+      }
+    });
+
+    // Diagnostic D: Auditing sequences and reconciliation counters
+    const { data: dbAudits } = await sb.from("upload_audit_logs").select("*").order("timestamp", { ascending: false }).limit(20);
+    const { count: totalUploadHistoryCount } = await sb.from("upload_audit_logs").select("*", { count: "exact", head: true });
+
+    let expectedFromAuditingLogs = 0;
+    if (dbAudits) {
+      dbAudits.forEach(aud => expectedFromAuditingLogs += (aud.inserted_rows || 0));
+    }
+
+    const { data: dbIntegrityLogs } = await sb.from("data_integrity_logs").select("*").order("timestamp", { ascending: false }).limit(25);
+
+    // Save automatic administrative checks trace
+    await sb.from("data_integrity_logs").insert({
+      check_type: "Administrative Integrity Sweep",
+      results_summary: `Scanned ${salesCount} ledger lines and ${budgetsCount} budgets. Found ${duplicateRowsTotal} duplicates, ${orphanedInvoices.length} unlinked representatives.`,
+      details: {
+        totalInvoicesCount: salesCount,
+        totalBudgetsCount: budgetsCount,
+        redundantRecords: duplicateRowsTotal,
+        orphansDetected: orphanedInvoices.length,
+        alertFlags: missingRowsList.length
       }
     });
 
     return {
       success: true,
-      orphanInvoices: orphans.length,
-      duplicateInvoices: duplicates.length,
-      totalInvoices: invoices?.length || 0,
-      totalUsers: users?.length || 0
+      metrics: {
+        totalInvoices: salesCount || 0,
+        totalBudgets: budgetsCount || 0,
+        usersRegistered: dbUsers.length,
+        totalUploadsRecorded: totalUploadHistoryCount || 0
+      },
+      diagnostics: {
+        duplicatesCount: duplicateRowsTotal,
+        duplicatesGroups: duplicateGroupsCount,
+        sampleDuplicates: sampleDuplicatesList,
+        missingRowsAlerts: missingRowsList,
+        orphanedInvoices: orphanedInvoices,
+        uploadReconciliation: {
+          expectedActiveRowsFromAudits: expectedFromAuditingLogs,
+          actualRowsInDatabase: salesCount || 0
+        }
+      },
+      auditHistory: dbAudits || [],
+      integrityHistory: dbIntegrityLogs || []
     };
   } catch (err) {
     console.error("Error running integrity check on Supabase:", err);
@@ -681,7 +942,33 @@ export async function cleanDuplicateRowsOnSupabase(): Promise<any> {
   if (!sb) return { success: false, error: "Supabase not configured" };
 
   try {
-    const { data: invoices } = await sb.from("sales_data").select("id, invoice_number, invoice_date, product_name, customer_code");
+    let invoices: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const start = page * pageSize;
+      const end = start + pageSize - 1;
+      const { data, error: salesErr } = await sb
+        .from("sales_data")
+        .select("id, invoice_number, invoice_date, product_name, customer_code")
+        .range(start, end);
+
+      if (salesErr) throw salesErr;
+
+      if (data && data.length > 0) {
+        invoices = [...invoices, ...data];
+        if (data.length < pageSize) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+
     const seen = new Map<string, string>();
     const dupIds: string[] = [];
 
@@ -717,7 +1004,34 @@ export async function alignOrphanInvoicesOnSupabase(): Promise<any> {
   if (!sb) return { success: false, error: "Supabase not configured" };
 
   try {
-    const { data: orphans } = await sb.from("sales_data").select("id, salesperson").is("salesperson_id", null);
+    let orphans: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const start = page * pageSize;
+      const end = start + pageSize - 1;
+      const { data, error: salesErr } = await sb
+        .from("sales_data")
+        .select("id, salesperson")
+        .is("salesperson_id", null)
+        .range(start, end);
+
+      if (salesErr) throw salesErr;
+
+      if (data && data.length > 0) {
+        orphans = [...orphans, ...data];
+        if (data.length < pageSize) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+
     const { data: users } = await sb.from("users").select("id, name, email");
 
     if (!orphans || orphans.length === 0) return { success: true, fixedCount: 0 };
@@ -758,7 +1072,8 @@ function mapUserRow(row: any): UserProfile {
     territory: row.territory || undefined,
     salespersonCode: row.employee_code || undefined,
     approved: row.is_active !== false,
-    managerId: row.manager_id || undefined
+    managerId: row.manager_id || undefined,
+    serverSynced: true
   };
 }
 

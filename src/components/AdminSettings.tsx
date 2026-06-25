@@ -4,8 +4,9 @@
  */
 
 import React, { useState } from "react";
-import { Settings, Shield, Terminal, Library, AlertCircle, RefreshCw, Layers, CheckCircle, Users, UserPlus, Trash2, Edit3, Key, Mail, MapPin, ArrowUp, ShieldCheck, Activity, Database, AlertTriangle } from "lucide-react";
+import { Settings, Shield, Terminal, Library, AlertCircle, RefreshCw, Layers, CheckCircle, Users, UserPlus, Trash2, Edit3, Key, Mail, MapPin, ArrowUp, ShieldCheck, Activity, Database, AlertTriangle, UploadCloud, FileSpreadsheet } from "lucide-react";
 import { AuditLog, UserProfile, InvoiceItem } from "../types";
+import * as XLSX from "xlsx";
 
 import { 
   isSupabaseConfigured,
@@ -32,6 +33,7 @@ interface AdminSettingsProps {
   currentUser: UserProfile;
   users: UserProfile[];
   onSaveUser: (user: any) => Promise<any>;
+  onSaveUsersBulk: (users: any[]) => Promise<any>;
   onDeleteUser: (userId: string) => Promise<boolean>;
   invoices: InvoiceItem[];
 }
@@ -262,11 +264,14 @@ export default function AdminSettings({
   currentUser,
   users,
   onSaveUser,
+  onSaveUsersBulk,
   onDeleteUser,
   invoices,
 }: AdminSettingsProps) {
   const [activeSubTab, setActiveSubTab] = useState<"standard" | "users" | "debug">("standard");
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+
 
   // Form states for creating / editing user
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -1111,8 +1116,10 @@ export default function AdminSettings({
           </div>
         </div>
 
-          {/* User creation / editing panel */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-xs space-y-4">
+          {/* Column 3: User Registration Form and Excel Bulk Import */}
+          <div className="space-y-6">
+            {/* User creation / editing panel */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-xs space-y-4">
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 block">
                 {editingUserId ? "Edit Account Profile" : "Register Sales Team Member"}
@@ -1259,6 +1266,8 @@ export default function AdminSettings({
             </form>
           </div>
 
+
+          </div> {/* End of Column 3 wrapper */}
         </div>
       ) : (
         <AdminDebugPanel invoices={invoices} users={users} />

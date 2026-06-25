@@ -507,6 +507,20 @@ export default function ExecutiveDashboard({
 
   const getProductPerformancesList = () => {
     const map = new Map<string, { current: number; prev: number; qtyCurr: number; qtyPrev: number; category: string }>();
+    
+    let latestYear = 2026;
+    if (scopedInvoices && scopedInvoices.length > 0) {
+      let maxYear = 0;
+      scopedInvoices.forEach(inv => {
+        if (inv.invoiceDate) {
+          const y = Number(inv.invoiceDate.split("-")[0]);
+          if (!isNaN(y) && y > maxYear) maxYear = y;
+        }
+      });
+      if (maxYear > 0) latestYear = maxYear;
+    }
+    const prevYear = latestYear - 1;
+
     (scopedInvoices || []).forEach(inv => {
       const cat = inv.productCategory || "Product";
       if (!map.has(cat)) {
@@ -514,10 +528,10 @@ export default function ExecutiveDashboard({
       }
       const entry = map.get(cat)!;
       const matchYear = inv.invoiceDate ? Number(inv.invoiceDate.split("-")[0]) : 0;
-      if (matchYear === 2026) {
+      if (matchYear === latestYear) {
         entry.current += inv.netSalesValue;
         entry.qtyCurr += inv.quantity;
-      } else if (matchYear === 2025) {
+      } else if (matchYear === prevYear) {
         entry.prev += inv.netSalesValue;
         entry.qtyPrev += inv.quantity;
       }
@@ -545,13 +559,47 @@ export default function ExecutiveDashboard({
   const p1TopCustomers = getTopCustomersVal(p1Records);
   const p2TopCustomers = getTopCustomersVal(p2Records);
 
-  // Prepare monthly comparative trend data for chart
-  // In March, April, May as YTD
-  const monthlyTimelineData = [
-    { name: "March", "Last Year (2025)": (analytics.prevYtdSales * 0.3), "Current Year (2026)": (analytics.currentYtdSales * 0.28) },
-    { name: "April", "Last Year (2025)": (analytics.prevYtdSales * 0.32), "Current Year (2026)": (analytics.currentYtdSales * 0.34) },
-    { name: "May (YTD)", "Last Year (2025)": (analytics.prevYtdSales * 0.38), "Current Year (2026)": (analytics.currentYtdSales * 0.38) },
-  ];
+  // Prepare monthly comparative trend data dynamically for chart
+  const { latestYearForTimeline, prevYearForTimeline, monthlyTimelineData } = React.useMemo(() => {
+    const latestY = scopedInvoices && scopedInvoices.length > 0 
+      ? Math.max(...scopedInvoices.map(inv => inv.invoiceDate ? Number(inv.invoiceDate.split("-")[0]) : 0)) 
+      : 2026;
+    const prevY = latestY - 1;
+
+    // March is the start of the fiscal year: March (2), April (3), etc.
+    const fiscalMonths = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1];
+    
+    // Determine the latest month in our actual period2 (YTD)
+    const upToDate = period2End ? new Date(period2End) : new Date();
+    const upToMonth = !isNaN(upToDate.getTime()) ? upToDate.getMonth() : 4; // fallback to May (4)
+    const upToIdx = fiscalMonths.indexOf(upToMonth);
+    const ytdMonths = upToIdx !== -1 ? fiscalMonths.slice(0, upToIdx + 1) : [2, 3, 4];
+
+    const timelineData = ytdMonths.map(m => {
+      const monthName = new Date(2000, m, 1).toLocaleString("en-US", { month: "long" });
+      const label = m === upToMonth ? `${monthName} (YTD)` : monthName;
+      
+      const currentSales = p2Records
+        .filter(r => r.invoiceDate && new Date(r.invoiceDate).getMonth() === m)
+        .reduce((sum, r) => sum + r.netSalesValue, 0);
+        
+      const prevSales = p1Records
+        .filter(r => r.invoiceDate && new Date(r.invoiceDate).getMonth() === m)
+        .reduce((sum, r) => sum + r.netSalesValue, 0);
+        
+      return {
+        name: label,
+        [`Last Year (${prevY})`]: prevSales,
+        [`Current Year (${latestY})`]: currentSales
+      };
+    });
+
+    return {
+      latestYearForTimeline: latestY,
+      prevYearForTimeline: prevY,
+      monthlyTimelineData: timelineData
+    };
+  }, [scopedInvoices, p1Records, p2Records, period2End]);
 
   // ===============================================
   // DYNAMIC COMPILED LISTS BOUND TO USER FILTERS & COMPARISON DATES

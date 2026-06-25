@@ -24,6 +24,7 @@ import {
   Info,
   Terminal,
   Target,
+  AlertTriangle,
   X
 } from "lucide-react";
 import { InvoiceItem, BudgetItem, UserProfile, AuditLog, EmailLog } from "./types";
@@ -73,6 +74,12 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [reconciliationWarning, setReconciliationWarning] = useState<{
+    mismatch: boolean;
+    loadedCount: number;
+    dbCount: number;
+    message: string;
+  } | null>(null);
 
   const [selectedUser, setSelectedUser] = useState<UserProfile>(SEED_USERS[0]); // Default to Sales Director
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -110,33 +117,75 @@ export default function App() {
       let serverAuditLogs: AuditLog[] = [];
       let serverEmailLogs: EmailLog[] = [];
       let serverUsers: UserProfile[] = [];
-
-      if (isSupabaseConfigured()) {
-        console.log("Supabase Cloud Sync: Fetching records directly from PostgreSQL...");
-        [serverUsers, serverInvoices, serverBudgets, serverEmailLogs, serverAuditLogs] = await Promise.all([
-          fetchUsersFromSupabase(),
-          fetchSalesDataFromSupabase(),
-          fetchBudgetDataFromSupabase(),
-          fetchEmailLogsFromSupabase(),
-          fetchAuditLogsFromSupabase()
-        ]);
-      } else {
+      let loadedFromBackend = false;
+      try {
         const response = await fetch(`${API_BASE}/api/db`);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        if (response.ok) {
+          const data = await response.json();
+          serverInvoices = data.invoices || [];
+          serverBudgets = data.budgets || [];
+          serverAuditLogs = data.auditLogs || [];
+          serverEmailLogs = data.emailLogs || [];
+          serverUsers = data.users || [];
+          loadedFromBackend = true;
+          console.log("Database Sync: Loaded all records successfully from local Express API backend.");
         }
-        const data = await response.json();
-        serverInvoices = data.invoices || [];
-        serverBudgets = data.budgets || [];
-        serverAuditLogs = data.auditLogs || [];
-        serverEmailLogs = data.emailLogs || [];
-        serverUsers = data.users || [];
+      } catch (err) {
+        console.warn("Local backend API not responding, falling back to direct Supabase queries:", err);
+      }
+
+      if (!loadedFromBackend) {
+        if (isSupabaseConfigured()) {
+          console.log("Supabase Cloud Sync: Fetching records directly from PostgreSQL...");
+          [serverUsers, serverInvoices, serverBudgets, serverEmailLogs, serverAuditLogs] = await Promise.all([
+            fetchUsersFromSupabase(),
+            fetchSalesDataFromSupabase(),
+            fetchBudgetDataFromSupabase(),
+            fetchEmailLogsFromSupabase(),
+            fetchAuditLogsFromSupabase()
+          ]);
+        } else {
+          serverInvoices = [];
+          serverBudgets = [];
+          serverAuditLogs = [];
+          serverEmailLogs = [];
+          serverUsers = [...SEED_USERS];
+        }
       }
       
       setInvoices(serverInvoices);
       setBudgets(serverBudgets);
       setAuditLogs(serverAuditLogs);
       setEmailLogs(serverEmailLogs);
+
+      // Row count reconciliation check
+      if (isSupabaseConfigured()) {
+        try {
+          const { getSupabase } = await import("./lib/supabaseClient");
+          const sb = getSupabase();
+          if (sb) {
+            const { count, error } = await sb.from("sales_data").select("*", { count: "exact", head: true });
+            if (!error && count !== null) {
+              if (count !== serverInvoices.length) {
+                const message = `Loaded ${serverInvoices.length} invoices in memory, but Supabase sales_data table contains ${count} rows.`;
+                setReconciliationWarning({
+                  mismatch: true,
+                  loadedCount: serverInvoices.length,
+                  dbCount: count,
+                  message
+                });
+                console.warn(message);
+              } else {
+                setReconciliationWarning(null);
+              }
+            }
+          }
+        } catch (recErr) {
+          console.warn("Failed to perform row count reconciliation check:", recErr);
+        }
+      } else {
+        setReconciliationWarning(null);
+      }
       
       // Retrieve user profiles from browser local storage to preserve admin user-corrected details (e.g., Gajanan's email)
       const cachedUsersStr = localStorage.getItem("agroSalesUsersList");
@@ -165,6 +214,21 @@ export default function App() {
         }
         return u;
       });
+
+      // Identify cached users that are missing from the server list (Self-healing recovery)
+      const missingFromServer = parsedCachedUsers.filter((cachedUser: any) => {
+        if (!cachedUser.email) return false;
+        return !loadedUsers.some((serverUser: any) => 
+          (serverUser.email && serverUser.email.trim().toLowerCase() === cachedUser.email.trim().toLowerCase()) ||
+          (serverUser.id && serverUser.id === cachedUser.id)
+        );
+      });
+
+      // Append missing users to mergedUsers
+      if (missingFromServer.length > 0) {
+        console.log(`Self-healing sync: Restoring ${missingFromServer.length} local storage users missing from server...`, missingFromServer);
+        mergedUsers.push(...missingFromServer);
+      }
 
       // Ensure critical Dhanashree and admin credentials are fully configured with custom passwords
       const verifiedUsers = mergedUsers.map((u: any) => {
@@ -197,6 +261,40 @@ export default function App() {
           password: "MyWorld99",
           approved: true
         });
+      }
+
+      // Resolve managerName from managerId dynamically for all loaded users
+      verifiedUsers.forEach((u: any) => {
+        if (u.managerId && !u.managerName) {
+          const mgr = verifiedUsers.find((m: any) => m.id === u.managerId);
+          if (mgr) {
+            u.managerName = mgr.name;
+          }
+        }
+      });
+
+      // Trigger background sync upload for the self-healed missing users
+      if (missingFromServer.length > 0) {
+        (async () => {
+          try {
+            if (isSupabaseConfigured()) {
+              const { saveUserProfilesToSupabase } = await import("./lib/supabaseClient");
+              await saveUserProfilesToSupabase(missingFromServer, verifiedUsers);
+            } else {
+              await fetch(`${API_BASE}/api/users/save-bulk`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  users: missingFromServer,
+                  initiator: selectedUser
+                })
+              });
+            }
+            console.log("Self-healing background user sync upload completed successfully.");
+          } catch (syncErr) {
+            console.warn("Self-healing background user sync upload failed:", syncErr);
+          }
+        })();
       }
 
       setUsers(verifiedUsers);
@@ -334,15 +432,84 @@ export default function App() {
     }
   };
 
+  // Bulk upload users from spreadsheet
+  const handleSaveUsersBulk = async (usersList: any[]) => {
+    try {
+      if (isSupabaseConfigured()) {
+        const { saveUserProfilesToSupabase } = await import("./lib/supabaseClient");
+        const success = await saveUserProfilesToSupabase(usersList, users);
+        if (success) {
+          await fetchDatabase(true);
+          return { success: true, serverSynced: true };
+        }
+      }
+
+      const response = await fetch(`${API_BASE}/api/users/save-bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          users: usersList,
+          initiator: selectedUser
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          const verified = data.users.map((u: any) => {
+            const withApproval = { ...u, approved: u.approved !== false };
+            if (withApproval.email && withApproval.email.toLowerCase() === "dhanashree.agro@gmail.com") {
+              return { ...withApproval, password: "MyWorld99", approved: true };
+            }
+            if (withApproval.email && withApproval.email.toLowerCase() === "admin@agroiq.com") {
+              return { ...withApproval, password: "admin123", approved: true };
+            }
+            return withApproval;
+          });
+          setUsers(verified);
+          safeSetLocalStorage("agroSalesUsersList", JSON.stringify(verified));
+          await fetchDatabase(true);
+          return { success: true, serverSynced: true };
+        }
+      }
+      throw new Error(`Server returned HTTP ${response.status}`);
+    } catch (e: any) {
+      console.error("Failed bulk users save:", e);
+      // Client-side fallback if offline
+      const localUsersStr = localStorage.getItem("agroSalesUsersList") || "[]";
+      let fallbackUsers: any[] = [];
+      try { fallbackUsers = JSON.parse(localUsersStr); } catch (_) {}
+      if (fallbackUsers.length === 0) fallbackUsers = [...users];
+
+      usersList.forEach(u => {
+        const compiledUser = {
+          ...u,
+          id: u.id || `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          password: u.password || "password123"
+        };
+        const idx = fallbackUsers.findIndex(fu => fu.email.toLowerCase() === compiledUser.email.toLowerCase());
+        if (idx >= 0) {
+          fallbackUsers[idx] = compiledUser;
+        } else {
+          fallbackUsers.push(compiledUser);
+        }
+      });
+
+      setUsers(fallbackUsers);
+      safeSetLocalStorage("agroSalesUsersList", JSON.stringify(fallbackUsers));
+      return { success: true, serverSynced: false, error: "Offline fallback cache merged: " + (e.message || e) };
+    }
+  };
+
   // Add/Update User from Settings panel or login signup
   const handleSaveUser = async (userPayload: any) => {
     let isEditing = false;
     try {
       if (isSupabaseConfigured()) {
-        const success = await saveUserProfileToSupabase(userPayload);
+        const success = await saveUserProfileToSupabase(userPayload, users);
         if (success) {
-           await fetchDatabase(true);
-           return { success: true, serverSynced: true };
+            await fetchDatabase(true);
+            return { success: true, serverSynced: true };
         }
       }
 
@@ -777,8 +944,32 @@ export default function App() {
     }
   };
 
+  // Find the latest invoice date to determine dynamic month and day bounds
+  const { latestMonth, latestDay } = useMemo(() => {
+    let m = 4; // default May (months are 0-indexed)
+    let d = 26; // default 26th
+    if (invoices && invoices.length > 0) {
+      let maxTime = 0;
+      let latestInvDate: Date | null = null;
+      invoices.forEach((inv) => {
+        if (inv.invoiceDate) {
+          const t = new Date(inv.invoiceDate).getTime();
+          if (!isNaN(t) && t > maxTime) {
+            maxTime = t;
+            latestInvDate = new Date(inv.invoiceDate);
+          }
+        }
+      });
+      if (latestInvDate) {
+        m = (latestInvDate as Date).getMonth();
+        d = (latestInvDate as Date).getDate();
+      }
+    }
+    return { latestMonth: m, latestDay: d };
+  }, [invoices]);
+
   // Compile operational metrics dynamically on the client based on selected role
-  const activeAnalytics = compileAnalytics(invoices, budgets, selectedUser, 4, 26, users);
+  const activeAnalytics = compileAnalytics(invoices, budgets, selectedUser, latestMonth, latestDay, users);
 
   // Filter local dashboard listings dynamically based on filter values
   const [activeFilters, setActiveFilters] = useState({
@@ -834,8 +1025,8 @@ export default function App() {
       });
     }
 
-    return compileAnalytics(filteredInvoices, budgets, selectedUser, 4, 26, users);
-  }, [currentUserInvoices, budgets, selectedUser, activeFilters, users]);
+    return compileAnalytics(filteredInvoices, budgets, selectedUser, latestMonth, latestDay, users);
+  }, [currentUserInvoices, budgets, selectedUser, activeFilters, users, latestMonth, latestDay]);
 
   if (isLoading) {
     return (
@@ -1011,16 +1202,19 @@ export default function App() {
             </button>
 
             {selectedUser && selectedUser.role === "Admin" && (
+              <button
+                onClick={() => { setActiveTab("upload"); setIsMobileSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition ${
+                  activeTab === "upload" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                }`}
+              >
+                <Upload className="w-4 h-4 shrink-0" />
+                Excel Upload Center
+              </button>
+            )}
+
+            {selectedUser && selectedUser.role === "Admin" && (
               <>
-                <button
-                  onClick={() => { setActiveTab("upload"); setIsMobileSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition ${
-                    activeTab === "upload" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
-                  }`}
-                >
-                  <Upload className="w-4 h-4 shrink-0" />
-                  Excel Upload Center
-                </button>
 
                 <button
                   id="nav-invoice-ledger"
@@ -1094,6 +1288,23 @@ export default function App() {
 
         {/* Primary Content Canvas */}
         <main className="flex-1 p-6 lg:p-8 space-y-6 overflow-x-hidden">
+
+          {/* Row Count Reconciliation Warning Banner */}
+          {reconciliationWarning && (
+            <div id="reconciliation-mismatch-banner" className="bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/55 rounded-2xl p-5 shadow-sm flex items-start gap-4">
+              <div className="p-3 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-xl shrink-0">
+                <AlertTriangle className="w-5 h-5 text-amber-605 dark:text-amber-400 animate-bounce" />
+              </div>
+              <div className="space-y-1 mt-0.5">
+                <h3 className="text-sm font-bold text-amber-900 dark:text-amber-405 font-sans">
+                  Data Integrity Alert: Row Count Reconciliation Mismatch
+                </h3>
+                <p className="text-[11px] text-amber-750 dark:text-slate-300 leading-relaxed max-w-4xl">
+                  {reconciliationWarning.message} There is a discrepancy between the invoices loaded in memory and the remote Supabase table row count. Please run the integrity sweep in Platform Settings or re-upload your Excel spreadsheets to synchronize the data sets.
+                </p>
+              </div>
+            </div>
+          )}
           
           {/* Global Startup Supabase Configuration Validation Banner */}
           {!isSupabaseConfigured() && (
@@ -1127,6 +1338,7 @@ export default function App() {
           {activeTab === "upload" && selectedUser && selectedUser.role === "Admin" && (
             <UploadCenter
               onDataUploaded={handleUploadedFiles}
+              onSaveUsersBulk={handleSaveUsersBulk}
               currentUser={selectedUser}
               existingInvoicesCount={invoices.length}
               existingBudgetsCount={budgets.length}
@@ -1164,6 +1376,7 @@ export default function App() {
               currentUser={selectedUser}
               users={users}
               onSaveUser={handleSaveUser}
+              onSaveUsersBulk={handleSaveUsersBulk}
               onDeleteUser={handleDeleteUser}
               invoices={invoices}
             />
