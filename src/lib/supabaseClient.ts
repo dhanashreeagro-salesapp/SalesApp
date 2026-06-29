@@ -309,7 +309,7 @@ export async function saveUserProfileToSupabase(user: Partial<UserProfile> & { p
   const { error } = await sb
     .from("users")
     .upsert({
-      id: user.id || undefined,
+      id: user.id && user.id.startsWith("user_") ? undefined : (user.id || undefined),
       ...row
     });
 
@@ -541,6 +541,7 @@ export async function saveBudgetsToSupabase(budgets: BudgetItem[], usersList: Us
     const resolvedUserId = nameToId.get(spKey) || b.id; // fallback to row ID if user not matched
 
     return {
+      id: b.id && b.id.startsWith("bud_upl_") ? undefined : b.id,
       product_name: b.product,
       budget_quantity: b.budgetQuantity,
       budget_value: b.budgetValue,
