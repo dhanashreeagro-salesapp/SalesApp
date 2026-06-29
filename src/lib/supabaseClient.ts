@@ -464,22 +464,45 @@ export async function fetchBudgetDataFromSupabase(): Promise<BudgetItem[]> {
   // Fetch all users to map salesperson and manager names
   const usersList = await fetchUsersFromSupabase();
 
-  const { data, error } = await sb
-    .from("budget_data")
-    .select(`
-      id,
-      product_name,
-      budget_quantity,
-      budget_value,
-      month,
-      financial_year,
-      salesperson_id
-    `);
+  let allRows: any[] = [];
+  let page = 0;
+  const pageSize = 1000;
+  let hasMore = true;
 
-  if (error) {
-    console.error("Error fetching budget sheets from Supabase:", error);
-    return [];
+  while (hasMore) {
+    const start = page * pageSize;
+    const end = start + pageSize - 1;
+    const { data, error } = await sb
+      .from("budget_data")
+      .select(`
+        id,
+        product_name,
+        budget_quantity,
+        budget_value,
+        month,
+        financial_year,
+        salesperson_id
+      `)
+      .range(start, end);
+
+    if (error) {
+      console.error("Error fetching budget sheets from Supabase:", error);
+      break;
+    }
+
+    if (data && data.length > 0) {
+      allRows = [...allRows, ...data];
+      if (data.length < pageSize) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    } else {
+      hasMore = false;
+    }
   }
+
+  const data = allRows;
 
   return (data || []).map((b: any) => {
     const sp = usersList.find((u) => u.id === b.salesperson_id);
@@ -805,7 +828,31 @@ export async function runIntegrityCheckOnSupabase(): Promise<any> {
       }
     }
 
-    const { data: budgetsList } = await sb.from("budget_data").select("id, product_name, salesperson_id, financial_year, month");
+    let budgetsList: any[] = [];
+    let bPage = 0;
+    let bHasMore = true;
+
+    while (bHasMore) {
+      const start = bPage * pageSize;
+      const end = start + pageSize - 1;
+      const { data: bData, error: bErr } = await sb
+        .from("budget_data")
+        .select("id, product_name, salesperson_id, financial_year, month")
+        .range(start, end);
+
+      if (bErr) throw bErr;
+
+      if (bData && bData.length > 0) {
+        budgetsList = [...budgetsList, ...bData];
+        if (bData.length < pageSize) {
+          bHasMore = false;
+        } else {
+          bPage++;
+        }
+      } else {
+        bHasMore = false;
+      }
+    }
     const { data: usersList } = await sb.from("users").select("id, name, email");
 
     const budgets = budgetsList || [];

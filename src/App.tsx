@@ -56,6 +56,13 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
+// Safely resolve build constants injected by Vite at compile time
+declare const __COMMIT_HASH__: string;
+declare const __BUILD_TIME__: string;
+
+const BUILD_VERSION = typeof __COMMIT_HASH__ !== 'undefined' ? __COMMIT_HASH__ : 'dev-local';
+const BUILD_TIMESTAMP = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'Just now';
+
 const safeSetLocalStorage = (key: string, value: string) => {
   if (key === "agroSalesInvoices" || key === "agroSalesBudgets") {
     return; // Bypass client-side local caching for large datasets to prevent browser QuotaExceeded crash hazards
@@ -1282,6 +1289,44 @@ export default function App() {
             <p className="font-normal text-gray-450 dark:text-slate-400">
               CRM dashboard elements, KPIs, Recharts summaries and AI advisory prompts automatically filter based on the logged-in user profile.
             </p>
+          </div>
+
+          {/* Deployment Version and Status Footer */}
+          <div className="pt-4 mt-6 border-t border-gray-100 dark:border-slate-800 space-y-2 text-[10px] text-gray-450 dark:text-slate-500 font-semibold">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1 text-gray-500 dark:text-slate-400 uppercase tracking-wide font-bold">
+                <Database className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+                <span>Sync Status</span>
+              </div>
+              <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
+                isSupabaseConfigured() 
+                  ? "bg-green-100 dark:bg-green-950/40 text-green-750 dark:text-green-400" 
+                  : "bg-amber-100 dark:bg-amber-950/40 text-amber-750 dark:text-amber-400"
+              }`}>
+                {isSupabaseConfigured() ? "Supabase Cloud" : "Local Mode"}
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between text-gray-450 dark:text-slate-400 font-normal">
+              <span>Build Version:</span>
+              <span className="font-mono bg-gray-50 dark:bg-slate-800/60 px-1 py-0.2 rounded text-[9px] font-bold text-gray-700 dark:text-slate-300">
+                {BUILD_VERSION}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-gray-450 dark:text-slate-400 font-normal">
+              <span>Deployed At:</span>
+              <span className="text-[9px] font-medium text-gray-600 dark:text-slate-300">
+                {BUILD_TIMESTAMP}
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between text-gray-450 dark:text-slate-400 font-normal">
+              <span>Environment:</span>
+              <span className="text-[9px] font-semibold text-gray-600 dark:text-slate-300">
+                {isVercelOrStatic ? "Vercel Production" : "Local Dev"}
+              </span>
+            </div>
           </div>
 
         </aside>

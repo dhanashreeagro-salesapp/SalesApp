@@ -139,6 +139,41 @@ async function fetchAllSalesFromSupabase(
   return allRows;
 }
 
+async function fetchAllBudgetsFromSupabase(
+  sb: any,
+  selectStr: string = "*"
+): Promise<any[]> {
+  let allRows: any[] = [];
+  let page = 0;
+  const pageSize = 1000;
+  let hasMore = true;
+
+  while (hasMore) {
+    const start = page * pageSize;
+    const end = start + pageSize - 1;
+    const { data, error } = await sb
+      .from("budget_data")
+      .select(selectStr)
+      .range(start, end);
+
+    if (error) {
+      throw error;
+    }
+
+    if (data && data.length > 0) {
+      allRows = [...allRows, ...data];
+      if (data.length < pageSize) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    } else {
+      hasMore = false;
+    }
+  }
+  return allRows;
+}
+
 async function syncLocalToSupabase(scope: "users" | "invoices" | "budgets" | "all" = "all") {
   const sb = getSupabaseAdminClient();
   if (!sb) return;
@@ -315,7 +350,7 @@ async function loadDB() {
 
       const salesData = await fetchAllSalesFromSupabase(sb, "*");
 
-      const { data: budgetsData, error: be } = await sb.from("budget_data").select(`
+      const budgetsData = await fetchAllBudgetsFromSupabase(sb, `
         id,
         product_name,
         budget_quantity,
@@ -324,7 +359,6 @@ async function loadDB() {
         financial_year,
         salesperson_id
       `);
-      if (be) throw be;
 
       const { data: emailLogsData } = await sb.from("email_logs").select("*");
       supabaseSyncEnabled = true;
@@ -648,8 +682,7 @@ app.get("/api/db", async (req, res) => {
       }));
 
       // Fetch Budgets
-      const { data: dbBudgets, error: be } = await sb.from("budget_data").select("*");
-      if (be) throw be;
+      const dbBudgets = await fetchAllBudgetsFromSupabase(sb, "*");
       const formattedBudgets = (dbBudgets || []).map((b: any) => {
         const u = formattedUsers.find(elem => elem.id === b.salesperson_id);
         return {
@@ -1524,7 +1557,7 @@ app.get("/api/admin/integrity-check", async (req, res) => {
     const { count: budgetsCount } = await sb.from("budget_data").select("*", { count: "exact", head: true });
 
     const salesList = await fetchAllSalesFromSupabase(sb, "id, invoice_date, invoice_number, product_name, customer_code, salesperson");
-    const { data: budgetsList } = await sb.from("budget_data").select("id, product_name, salesperson_id, financial_year, month");
+    const budgetsList = await fetchAllBudgetsFromSupabase(sb, "id, product_name, salesperson_id, financial_year, month");
     const { data: usersList } = await sb.from("users").select("id, name, email");
 
     const invoices = salesList || [];
