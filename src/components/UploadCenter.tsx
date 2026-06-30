@@ -8,6 +8,7 @@ import * as XLSX from "xlsx";
 import { Upload, FileText, CheckCircle2, AlertTriangle, CloudRain, ShieldCheck, Database, RefreshCw, AlertCircle, Lock, Target, Users } from "lucide-react";
 import { InvoiceItem, BudgetItem, UserProfile } from "../types";
 import { getSupabase, uploadExcelToStorage } from "../lib/supabaseClient";
+import { isFuzzyNameMatch } from "../utils/analytics";
 
 function getStandardizedValue(value: string, category: "customer" | "product"): string {
   if (!value) return "";
@@ -472,21 +473,38 @@ export default function UploadCenter({
         parsedCount = stagedBudgets.length;
         addLog(`[Budget] Loaded ${parsedCount} salesperson budget spreadsheet cells.`);
 
+        const sb = getSupabase();
+        const { data: dbUsers } = await sb!.from("users").select("id, name");
+        const dbUsersList = dbUsers || [];
+
         const rows = stagedBudgets.map(b => {
-          const matchedUser = (users || []).find(
-            u => u.name && (u.name || "").trim().toLowerCase() === (b.salesperson || "").trim().toLowerCase()
+          // 1. Try to find the user in the database list using fuzzy match
+          const dbMatch = dbUsersList.find(
+            u => u.name && isFuzzyNameMatch(u.name, b.salesperson)
           );
+          let salesperson_id = dbMatch ? dbMatch.id : null;
+
+          // 2. Fallback to client state users if not in database
+          if (!salesperson_id) {
+            const matchedUser = (users || []).find(
+              u => u.name && isFuzzyNameMatch(u.name, b.salesperson)
+            );
+            if (matchedUser && matchedUser.id && !matchedUser.id.startsWith("user_")) {
+              salesperson_id = matchedUser.id;
+            }
+          }
+
           return {
             product_name: b.product,
             budget_quantity: b.budgetQuantity,
             budget_value: b.budgetValue,
             month: b.month,
             financial_year: b.financialYear,
-            salesperson_id: matchedUser ? matchedUser.id : null
+            salesperson_id: salesperson_id
           };
         }).filter(r => r.salesperson_id !== null);
 
-        addLog(`[Budget] Matched names to client database accounts for ${rows.length} salesperson targets.`);
+        addLog(`[Budget] Matched names to client database accounts for ${rows.length} of ${stagedBudgets.length} salesperson targets.`);
 
         const chunkSize = 500;
         const chunks: any[][] = [];
@@ -1124,7 +1142,7 @@ export default function UploadCenter({
         let budgetReg = "West";
 
         const matchedSpUser = (users || []).find(
-          u => u.name.trim().toLowerCase() === spNorm ||
+          u => isFuzzyNameMatch(u.name, salespersonC2) ||
                (u.email && u.email.trim().toLowerCase() === spNorm)
         );
 

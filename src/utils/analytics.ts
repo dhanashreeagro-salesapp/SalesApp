@@ -83,7 +83,7 @@ export function isFuzzyNameMatch(nameA: string, nameB: string): boolean {
   const clean = (s: string) => s.toLowerCase().trim()
     .replace(/\(.*?\)/g, "") // remove parenthesized parts like (Shridhar Patil)
     .replace(/[^a-z0-9\s]/g, "") // remove punctuation
-    .replace(/\b(solapur|tembhurni|latur|yaval|aurangabad|pune|satara|nasik|kolhapur|guntur|nellore|trichur|salem|bathinda|karnal|sangli|baramati)\b/gi, "") // remove known territories/cities
+    .replace(/\b(solapur|tembhurni|latur|yaval|aurangabad|pune|satara|nasik|kolhapur|guntur|nellore|trichur|salem|bathinda|karnal|sangli|baramati|dr|mr|shri|smt|adv)\b/gi, "") // remove known territories/cities and titles
     .replace(/\s+/g, " ")
     .trim();
 
