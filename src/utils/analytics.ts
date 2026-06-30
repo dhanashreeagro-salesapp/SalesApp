@@ -77,6 +77,52 @@ export function getUserDescendantsList(user: UserProfile, usersList: UserProfile
   return result;
 }
 
+// Helper to match names fuzzy-style (ignoring geographic prefixes, casing, punctuation, spelling variations)
+export function isFuzzyNameMatch(nameA: string, nameB: string): boolean {
+  if (!nameA || !nameB) return false;
+  const clean = (s: string) => s.toLowerCase().trim()
+    .replace(/\(.*?\)/g, "") // remove parenthesized parts like (Shridhar Patil)
+    .replace(/[^a-z0-9\s]/g, "") // remove punctuation
+    .replace(/\b(solapur|tembhurni|latur|yaval|aurangabad|pune|satara|nasik|kolhapur|guntur|nellore|trichur|salem|bathinda|karnal|sangli|baramati)\b/gi, "") // remove known territories/cities
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const ca = clean(nameA);
+  const cb = clean(nameB);
+  if (!ca || !cb) return false;
+
+  // Exact clean match
+  if (ca === cb) return true;
+
+  // Subset check
+  const wordsA = ca.split(" ").filter(w => w.length > 2);
+  const wordsB = cb.split(" ").filter(w => w.length > 2);
+  if (wordsA.length === 0 || wordsB.length === 0) return false;
+
+  const isSubsetA = wordsA.every(w => cb.includes(w));
+  const isSubsetB = wordsB.every(w => ca.includes(w));
+  if (isSubsetA || isSubsetB) return true;
+
+  // Sound/spelling variations check
+  const normalizeSpelling = (w: string) => w
+    .replace(/v/g, "w")
+    .replace(/aa/g, "a")
+    .replace(/ee/g, "i")
+    .replace(/oo/g, "u")
+    .replace(/sangle/g, "sangale")
+    .replace(/gawande/g, "gavande");
+
+  const na = wordsA.map(normalizeSpelling);
+  const nb = wordsB.map(normalizeSpelling);
+  const common = na.filter(w => nb.includes(w));
+  
+  if (common.length >= 1 && common.some(w => w !== "patil" && w !== "more" && w !== "rao" && w !== "singh" && w !== "verma")) {
+    return true; // share a distinctive name token
+  }
+
+  return false;
+}
+
 // Scopes invoices based on the user's role and hierarchy
 export function filterDataByRole(
   invoices: InvoiceItem[],
@@ -105,11 +151,6 @@ export function filterDataByRole(
   const assignedTerritories = new Set<string>();
   const allowedCustomerNames = new Set<string>();
 
-  // Use Sets for O(1) matching of user attributes
-  const names = new Set(allIncludedUsers.map(u => (u.name || "").trim().toLowerCase()).filter(Boolean));
-  const emails = new Set(allIncludedUsers.map(u => (u.email || "").trim().toLowerCase()).filter(Boolean));
-  const ids = new Set(allIncludedUsers.map(u => (u.id || "").trim().toLowerCase()).filter(Boolean));
-
   // 1. Collect explicit profile territories
   allIncludedUsers.forEach(currUser => {
     const profileTerritory = (currUser.territory || "").trim().toLowerCase();
@@ -120,14 +161,19 @@ export function filterDataByRole(
 
   // 2. Scan invoice database in a single pass to map territories and customer names
   invoices.forEach(inv => {
-    const invSp = (inv.salesperson || "").trim().toLowerCase();
-    const invRm = (inv.regionalManager || "").trim().toLowerCase();
+    const invSp = inv.salesperson || "";
+    const invRm = inv.regionalManager || "";
 
-    const matchesUser = (
-      names.has(invSp) || names.has(invRm) ||
-      emails.has(invSp) || emails.has(invRm) ||
-      ids.has(invSp) || ids.has(invRm)
-    );
+    const matchesUser = allIncludedUsers.some(u => {
+      const uName = u.name;
+      const uEmail = (u.email || "").trim().toLowerCase();
+      const uId = (u.id || "").trim().toLowerCase();
+      return (
+        (uName && (isFuzzyNameMatch(uName, invSp) || isFuzzyNameMatch(uName, invRm))) ||
+        (uEmail && (invSp.toLowerCase() === uEmail || invRm.toLowerCase() === uEmail)) ||
+        (uId && (invSp.toLowerCase() === uId || invRm.toLowerCase() === uId))
+      );
+    });
 
     if (matchesUser) {
       const invTerritory = (inv.territory || "").trim().toLowerCase();
@@ -154,14 +200,19 @@ export function filterDataByRole(
   return invoices.filter(inv => {
     if (!inv.customerName) return false;
 
-    const invSp = (inv.salesperson || "").trim().toLowerCase();
-    const invRm = (inv.regionalManager || "").trim().toLowerCase();
+    const invSp = inv.salesperson || "";
+    const invRm = inv.regionalManager || "";
 
-    const matchesUserOrDescendant = (
-      names.has(invSp) || names.has(invRm) ||
-      emails.has(invSp) || emails.has(invRm) ||
-      ids.has(invSp) || ids.has(invRm)
-    );
+    const matchesUserOrDescendant = allIncludedUsers.some(u => {
+      const uName = u.name;
+      const uEmail = (u.email || "").trim().toLowerCase();
+      const uId = (u.id || "").trim().toLowerCase();
+      return (
+        (uName && (isFuzzyNameMatch(uName, invSp) || isFuzzyNameMatch(uName, invRm))) ||
+        (uEmail && (invSp.toLowerCase() === uEmail || invRm.toLowerCase() === uEmail)) ||
+        (uId && (invSp.toLowerCase() === uId || invRm.toLowerCase() === uId))
+      );
+    });
 
     if (matchesUserOrDescendant) return true;
 
@@ -191,10 +242,17 @@ export function filterBudgetsByRole(
     return budgets;
   }
 
-  // Each user ONLY views his/her own budget sheets
+  // Find all recursive descendants
+  const descendants = getUserDescendantsList(user, usersList);
+  const allIncludedUsers = [user, ...descendants];
+
   return budgets.filter(b => {
     const bSalesperson = (b.salesperson || "").trim().toLowerCase();
-    return bSalesperson === userNameNorm || bSalesperson === userEmail;
+    return allIncludedUsers.some(u => {
+      const uName = (u.name || "").trim().toLowerCase();
+      const uEmail = (u.email || "").trim().toLowerCase();
+      return isFuzzyNameMatch(uName, bSalesperson) || bSalesperson === uEmail;
+    });
   });
 }
 

@@ -42,7 +42,7 @@ import {
   Area
 } from "recharts";
 import { InvoiceItem, UserProfile, BudgetItem } from "../types";
-import { CompiledAnalytics, getUserDescendantsList } from "../utils/analytics";
+import { CompiledAnalytics, getUserDescendantsList, isFuzzyNameMatch } from "../utils/analytics";
 
 // Sub-Tab Components Imports
 import DashboardOverviewTab from "./DashboardOverviewTab";
@@ -177,19 +177,19 @@ export default function ExecutiveDashboard({
   const assignedCustomers = React.useMemo(() => {
     if (currentUser.role !== "Salesperson" && currentUser.role !== "Regional Manager") return [];
     const customersMap = new Map<string, { name: string; code: string; count: number; totalAmt: number }>();
-    const myNameNorm = (currentUser.name || "").trim().toLowerCase();
+    const myName = currentUser.name || "";
     const myEmailNorm = (currentUser.email || "").trim().toLowerCase();
     const myIdNorm = (currentUser.id || "").trim().toLowerCase();
 
     (scopedInvoices || []).forEach(inv => {
       // For Regional Manager, only show their DIRECTLY assigned customer accounts (not of their subordinates)
       if (currentUser.role === "Regional Manager") {
-        const invSp = (inv.salesperson || "").trim().toLowerCase();
-        const invRm = (inv.regionalManager || "").trim().toLowerCase();
+        const invSp = inv.salesperson || "";
+        const invRm = inv.regionalManager || "";
         const isDirectToRM = (
-          (myNameNorm && (invSp === myNameNorm || invRm === myNameNorm)) ||
-          (myEmailNorm && (invSp === myEmailNorm || invRm === myEmailNorm)) ||
-          (myIdNorm && (invSp === myIdNorm || invRm === myIdNorm))
+          (myName && (isFuzzyNameMatch(myName, invSp) || isFuzzyNameMatch(myName, invRm))) ||
+          (myEmailNorm && (invSp.toLowerCase() === myEmailNorm || invRm.toLowerCase() === myEmailNorm)) ||
+          (myIdNorm && (invSp.toLowerCase() === myIdNorm || invRm.toLowerCase() === myIdNorm))
         );
         if (!isDirectToRM) return;
       }
@@ -219,13 +219,13 @@ export default function ExecutiveDashboard({
       const usrNameNorm = (usr.name || "").trim().toLowerCase();
       const usrEmailNorm = (usr.email || "").trim().toLowerCase();
       const usrIdNorm = (usr.id || "").trim().toLowerCase();
-      if (usrNameNorm === rmNameNorm || (rmEmailNorm && usrEmailNorm === rmEmailNorm)) return false;
+      if (isFuzzyNameMatch(currentUser.name, usr.name) || (rmEmailNorm && usrEmailNorm === rmEmailNorm)) return false;
 
       if (usr.role !== "Salesperson" && usr.role !== "Regional Manager") return false;
       const mgrNorm = (usr.managerName || "").trim().toLowerCase();
       
       // 1. Direct reports based on user profile structure
-      const isDirectReport = (rmNameNorm && mgrNorm === rmNameNorm) || 
+      const isDirectReport = (currentUser.name && isFuzzyNameMatch(currentUser.name, usr.managerName || "")) || 
                             (rmEmailNorm && mgrNorm === rmEmailNorm) ||
                             (rmIdNorm && mgrNorm === rmIdNorm);
       if (isDirectReport) return true;
@@ -234,18 +234,10 @@ export default function ExecutiveDashboard({
       let isInvoiceMatchedReport = false;
       if (scopedInvoices && scopedInvoices.length > 0) {
         scopedInvoices.forEach(inv => {
-          const invRm = (inv.regionalManager || "").trim().toLowerCase();
-          const invSp = (inv.salesperson || "").trim().toLowerCase();
-          if (
-            (rmNameNorm && invRm === rmNameNorm) || 
-            (rmEmailNorm && invRm === rmEmailNorm) || 
-            (rmIdNorm && invRm === rmIdNorm)
-          ) {
-            if (
-              (usrNameNorm && invSp === usrNameNorm) || 
-              (usrEmailNorm && invSp === usrEmailNorm) || 
-              (usrIdNorm && invSp === usrIdNorm)
-            ) {
+          const invRm = inv.regionalManager || "";
+          const invSp = inv.salesperson || "";
+          if (isFuzzyNameMatch(currentUser.name, invRm)) {
+            if (isFuzzyNameMatch(usr.name, invSp)) {
               isInvoiceMatchedReport = true;
             }
           }
@@ -265,21 +257,20 @@ export default function ExecutiveDashboard({
       const subDealers = new Set<string>();
       allSubUsers.forEach(su => {
         const suTerritory = (su.territory || "").trim().toLowerCase();
-        const suName = (su.name || "").trim().toLowerCase();
         const suEmail = (su.email || "").trim().toLowerCase();
         const suId = (su.id || "").trim().toLowerCase();
 
         (scopedInvoices || []).forEach(inv => {
           const invTerr = (inv.territory || "").trim().toLowerCase();
-          const invSp = (inv.salesperson || "").trim().toLowerCase();
-          const invRm = (inv.regionalManager || "").trim().toLowerCase();
+          const invSp = inv.salesperson || "";
+          const invRm = inv.regionalManager || "";
 
           // Match by territory
           const terrMatch = suTerritory && invTerr === suTerritory;
           // Match by salesperson/RM directly
-          const directMatch = (suName && (invSp === suName || invRm === suName)) ||
-                              (suEmail && (invSp === suEmail || invRm === suEmail)) ||
-                              (suId && (invSp === suId || invRm === suId));
+          const directMatch = (su.name && (isFuzzyNameMatch(su.name, invSp) || isFuzzyNameMatch(su.name, invRm))) ||
+                              (suEmail && (invSp.toLowerCase() === suEmail || invRm.toLowerCase() === suEmail)) ||
+                              (suId && (invSp.toLowerCase() === suId || invRm.toLowerCase() === suId));
 
           if ((terrMatch || directMatch) && inv.customerName) {
             subDealers.add(inv.customerName.trim().toLowerCase());
@@ -292,16 +283,15 @@ export default function ExecutiveDashboard({
         if (!inv.customerName) return false;
         
         // Direct matching as an override fallback
-        const invSp = (inv.salesperson || "").trim().toLowerCase();
-        const invRm = (inv.regionalManager || "").trim().toLowerCase();
+        const invSp = inv.salesperson || "";
+        const invRm = inv.regionalManager || "";
         const matchesSubUser = allSubUsers.some(su => {
-          const suName = (su.name || "").trim().toLowerCase();
           const suEmail = (su.email || "").trim().toLowerCase();
           const suId = (su.id || "").trim().toLowerCase();
           return (
-            (suName && (invSp === suName || invRm === suName)) ||
-            (suEmail && (invSp === suEmail || invRm === suEmail)) ||
-            (suId && (invSp === suId || invRm === suId))
+            (su.name && (isFuzzyNameMatch(su.name, invSp) || isFuzzyNameMatch(su.name, invRm))) ||
+            (suEmail && (invSp.toLowerCase() === suEmail || invRm.toLowerCase() === suEmail)) ||
+            (suId && (invSp.toLowerCase() === suId || invRm.toLowerCase() === suId))
           );
         });
         if (matchesSubUser) return true;
@@ -341,7 +331,7 @@ export default function ExecutiveDashboard({
 
   // Rankings lists view expansions states
   // Sub-tabs navigation state & inside-tab sub-view filter selections
-   const [activeSubTab, setActiveSubTab] = useState<"dashboard" | "product" | "customer" | "supplier" | "lost" | "yoy" | "budgetVsActual">("dashboard");
+   const [activeSubTab, setActiveSubTab] = useState<"dashboard" | "commandDesk" | "product" | "customer" | "supplier" | "lost" | "yoy" | "budgetVsActual">("dashboard");
   const [productSubView, setProductSubView] = useState<"all" | "top20qty" | "bottom20qty" | "topValue" | "nonBilling">("all");
   const [customerSubView, setCustomerSubView] = useState<"all" | "topQty" | "topValue" | "bottom20" | "regionBreakdown">("all");
 
@@ -783,17 +773,25 @@ export default function ExecutiveDashboard({
   const tabsList = React.useMemo(() => {
     const list = [
       { id: "dashboard", label: "Dashboard", desc: "Executive KPI Hub" },
+    ];
+
+    if (currentUser.role === "Salesperson" || currentUser.role === "Regional Manager") {
+      list.push({ id: "commandDesk", label: "My Sales Desk", desc: "Portfolio & Hierarchy" });
+    }
+
+    list.push(
       { id: "product", label: "Product Comparative", desc: "SKU Volume Standings" },
       { id: "customer", label: "Customer Standings", desc: "Dealer Accounts" },
       { id: "supplier", label: "Suppliers Performance", desc: "Vendor Analysis" },
       { id: "lost", label: "Dropped & Lost CRM", desc: "CRM Risk Audit" },
-      { id: "yoy", label: "YoY Comparison", desc: "Year over Year Grid" },
-    ];
+      { id: "yoy", label: "YoY Comparison", desc: "Year over Year Grid" }
+    );
+
     if (hasBudget) {
       list.push({ id: "budgetVsActual", label: "Budget v/s Actual", desc: "Sales Target Standing" });
     }
     return list;
-  }, [hasBudget]);
+  }, [hasBudget, currentUser]);
 
   return (
     <div className="space-y-6">
@@ -832,129 +830,6 @@ export default function ExecutiveDashboard({
           </div>
         );
       })()}
-
-      {/* 👤 Salesperson & Regional Manager direct customer assignments table */}
-      {(currentUser.role === "Salesperson" || (currentUser.role === "Regional Manager" && assignedCustomers.length > 0)) && (
-        <div className="bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-200 rounded-2xl p-5 shadow-xs text-left">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-teal-150 pb-4 mb-4">
-            <div className="flex items-start gap-3">
-              <div className="bg-teal-600 text-white p-2 rounded-xl">
-                <Users className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-[9px] uppercase font-bold tracking-widest text-teal-700 block">Registered Sales Desk Info</span>
-                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <span>👤 My Assigned Customer Portfolio</span>
-                  <span className="bg-teal-100 text-teal-800 text-[10px] px-2.5 py-0.5 rounded-full font-mono font-bold">
-                    {assignedCustomers.length} Assigned Accounts
-                  </span>
-                </h2>
-                <p className="text-[10px] text-slate-500 mt-0.5">
-                  Scope: <span className="font-semibold text-slate-700">{currentUser.role === "Salesperson" ? `Sub Group (Territory) - ${currentUser.territory || "Unassigned"}` : "Direct Accounts Portfolio"}</span> | Supervisor RM: <span className="font-semibold text-slate-700">{currentUser.managerName || "None"}</span>
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="max-h-60 overflow-y-auto rounded-xl border border-teal-150 bg-white">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead className="bg-teal-50/50 text-slate-600 font-bold border-b border-teal-100 uppercase tracking-wider text-[9px]">
-                <tr>
-                  <th className="p-3">Customer Acc Name</th>
-                  <th className="p-3">Customer Code</th>
-                  <th className="p-3 text-right">Transactions</th>
-                  <th className="p-3 text-right">Total Net Sales</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {assignedCustomers.length > 0 ? (
-                  assignedCustomers.map((cust, itemIdx) => (
-                    <tr key={itemIdx} className="hover:bg-slate-50 font-medium">
-                      <td className="p-3 font-semibold text-slate-900">{cust.name}</td>
-                      <td className="p-3 font-mono text-[10px]">{cust.code}</td>
-                      <td className="p-3 text-right font-semibold">{cust.count} ledger lines</td>
-                      <td className="p-3 text-right text-emerald-700 font-bold font-mono">₹{cust.totalAmt.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={4} className="p-6 text-center text-slate-400 italic">No customer invoice receipts found matching your salesperson name in the active database.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* 🌳 Regional Manager Reporting Sales Team Block */}
-      {currentUser.role === "Regional Manager" && (
-        <div className="bg-gradient-to-r from-blue-50/70 to-indigo-50/50 border border-blue-200 rounded-2xl p-5 shadow-xs text-left">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-blue-150 pb-4 mb-4">
-            <div className="flex items-start gap-3">
-              <div className="bg-blue-600 text-white p-2 rounded-xl">
-                <Briefcase className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-[9px] uppercase font-bold tracking-widest text-blue-700 block">Regional Command Desk Info</span>
-                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <span>🌳 My Reporting Salesperson & Client Hierarchy</span>
-                  <span className="bg-blue-100 text-blue-800 text-[10px] px-2.5 py-0.5 rounded-full font-mono font-bold">
-                    {subordinateHierarchy.length} Reporting Agents
-                  </span>
-                </h2>
-                <p className="text-[10px] text-slate-500 mt-0.5">
-                  Operating Region: <span className="font-semibold text-slate-700">{currentUser.region || "Unassigned"}</span> | Role Position: <span className="font-semibold text-slate-700">Reporting Regional Overseer</span>
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {subordinateHierarchy.length > 0 ? (
-              subordinateHierarchy.map((sub, spIdx) => (
-                <div key={spIdx} className="bg-white rounded-xl border border-blue-100 p-4 space-y-3.5 shadow-2xs">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                        <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-505 bg-blue-500"></span>
-                        {sub.subordinate.name}
-                      </h4>
-                      <p className="text-[10px] text-slate-500 font-medium">{sub.subordinate.email}</p>
-                    </div>
-                    <span className="bg-blue-50 text-blue-800 text-[9px] font-bold px-2 py-0.5 rounded-md font-mono">
-                      {sub.subordinate.role === "Regional Manager" ? "Regional Manager" : (sub.subordinate.territory || "No Territory")}
-                    </span>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">Assigned Dealer Accounts ({sub.customers.length})</span>
-                    <div className="bg-slate-50/50 rounded-lg p-2.5 max-h-40 overflow-y-auto border border-slate-100 divide-y divide-slate-100">
-                      {sub.customers.length > 0 ? (
-                        sub.customers.map((cust, cIdx) => (
-                          <div key={cIdx} className="flex items-center justify-between text-[11px] py-1.5 font-medium">
-                            <div className="truncate pr-2">
-                              <p className="text-slate-800 font-semibold truncate leading-tight" title={cust.name}>{cust.name}</p>
-                              <p className="text-[8px] text-slate-400 font-mono font-semibold">Code: {cust.code}</p>
-                            </div>
-                            <span className="text-blue-700 font-bold font-mono text-[10px] shrink-0">₹{(cust.totalAmt/1000).toFixed(1)}k</span>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-[10px] text-slate-400 italic py-2 text-center">No customer invoices in scope.</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="col-span-full p-8 text-center text-slate-400 italic border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
-                No active salesperson accounts currently report to {currentUser.name} on the users list database.
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Dynamic Multi-Select Filters Panel */}
       {/* 1. DESKTOP ONLY INLINE FILTER ENGINE (Visible on `lg` screens and above) */}
@@ -1595,6 +1470,131 @@ export default function ExecutiveDashboard({
             customerStats={customerStats}
             regionStats={regionStats} 
           />
+        )}
+        {activeSubTab === "commandDesk" && (
+          <div className="space-y-6">
+            
+            {/* 👤 Salesperson & Regional Manager direct customer assignments table */}
+            {(currentUser.role === "Salesperson" || (currentUser.role === "Regional Manager" && assignedCustomers.length > 0)) && (
+              <div className="bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-200 rounded-2xl p-5 shadow-xs text-left">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-teal-150 pb-4 mb-4">
+                  <div className="flex items-start gap-3">
+                    <div className="bg-teal-600 text-white p-2 rounded-xl">
+                      <Users className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold tracking-widest text-teal-700 block">Registered Sales Desk Info</span>
+                      <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                        <span>👤 My Assigned Customer Portfolio</span>
+                        <span className="bg-teal-100 text-teal-800 text-[10px] px-2.5 py-0.5 rounded-full font-mono font-bold">
+                          {assignedCustomers.length} Assigned Accounts
+                        </span>
+                      </h2>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        Scope: <span className="font-semibold text-slate-700">{currentUser.role === "Salesperson" ? `Sub Group (Territory) - ${currentUser.territory || "Unassigned"}` : "Direct Accounts Portfolio"}</span> | Supervisor RM: <span className="font-semibold text-slate-700">{currentUser.managerName || "None"}</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="max-h-120 overflow-y-auto rounded-xl border border-teal-150 bg-white">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="bg-teal-50/50 text-slate-600 font-bold border-b border-teal-100 uppercase tracking-wider text-[9px]">
+                      <tr>
+                        <th className="p-3">Customer Acc Name</th>
+                        <th className="p-3 text-right">Transactions</th>
+                        <th className="p-3 text-right">Total Net Sales</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {assignedCustomers.length > 0 ? (
+                        assignedCustomers.map((cust, itemIdx) => (
+                          <tr key={itemIdx} className="hover:bg-slate-50 font-medium">
+                            <td className="p-3 font-semibold text-slate-900">{cust.name}</td>
+                            <td className="p-3 text-right font-semibold">{cust.count} ledger lines</td>
+                            <td className="p-3 text-right text-emerald-700 font-bold font-mono">₹{cust.totalAmt.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={3} className="p-6 text-center text-slate-400 italic">No customer invoice receipts found matching your salesperson name in the active database.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* 🌳 Regional Manager Reporting Sales Team Block */}
+            {currentUser.role === "Regional Manager" && (
+              <div className="bg-gradient-to-r from-blue-50/70 to-indigo-50/50 border border-blue-200 rounded-2xl p-5 shadow-xs text-left">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-blue-150 pb-4 mb-4">
+                  <div className="flex items-start gap-3">
+                    <div className="bg-blue-600 text-white p-2 rounded-xl">
+                      <Briefcase className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold tracking-widest text-blue-700 block">Regional Command Desk Info</span>
+                      <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                        <span>🌳 My Reporting Salesperson & Client Hierarchy</span>
+                        <span className="bg-blue-100 text-blue-800 text-[10px] px-2.5 py-0.5 rounded-full font-mono font-bold">
+                          {subordinateHierarchy.length} Reporting Agents
+                        </span>
+                      </h2>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        Operating Region: <span className="font-semibold text-slate-700">{currentUser.region || "Unassigned"}</span> | Role Position: <span className="font-semibold text-slate-700">Reporting Regional Overseer</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {subordinateHierarchy.length > 0 ? (
+                    subordinateHierarchy.map((sub, spIdx) => (
+                      <div key={spIdx} className="bg-white rounded-xl border border-blue-100 p-4 space-y-3.5 shadow-2xs">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                              <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                              {sub.subordinate.name}
+                            </h4>
+                            <p className="text-[10px] text-slate-500 font-medium">{sub.subordinate.email}</p>
+                          </div>
+                          <span className="bg-blue-50 text-blue-800 text-[9px] font-bold px-2 py-0.5 rounded-md font-mono">
+                            {sub.subordinate.role === "Regional Manager" ? "Regional Manager" : (sub.subordinate.territory || "No Territory")}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">Assigned Dealer Accounts ({sub.customers.length})</span>
+                          <div className="bg-slate-50/50 rounded-lg p-2.5 max-h-40 overflow-y-auto border border-slate-100 divide-y divide-slate-100">
+                            {sub.customers.length > 0 ? (
+                              sub.customers.map((cust, cIdx) => (
+                                <div key={cIdx} className="flex items-center justify-between text-[11px] py-1.5 font-medium">
+                                  <div className="truncate pr-2">
+                                    <p className="text-slate-800 font-semibold truncate leading-tight" title={cust.name}>{cust.name}</p>
+                                  </div>
+                                  <span className="text-blue-700 font-bold font-mono text-[10px] shrink-0">₹{(cust.totalAmt/1000).toFixed(1)}k</span>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-[10px] text-slate-400 italic py-2 text-center">No customer invoices in scope.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-full p-8 text-center text-slate-400 italic border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                      No active salesperson accounts report to {currentUser.name} (checked via database supervisor chains and fuzzy matching of salesperson names in regional invoice records).
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+          </div>
         )}
         {activeSubTab === "product" && (
           <ProductComparativeTab productStats={productStats} p1Records={p1Records} p2Records={p2Records} />

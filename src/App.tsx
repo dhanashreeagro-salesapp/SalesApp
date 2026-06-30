@@ -240,10 +240,10 @@ export default function App() {
       // Ensure critical Dhanashree and admin credentials are fully configured with custom passwords
       const verifiedUsers = mergedUsers.map((u: any) => {
         const withApproval = { ...u, approved: u.approved !== false };
-        if (withApproval.email && withApproval.email.toLowerCase() === "dhanashree.agro@gmail.com") {
+        if (withApproval.email && withApproval.email.toLowerCase() === "dhanashree.agro@gmail.com" && !withApproval.password) {
           return { ...withApproval, password: "MyWorld99", approved: true };
         }
-        if (withApproval.email && withApproval.email.toLowerCase() === "admin@agroiq.com") {
+        if (withApproval.email && withApproval.email.toLowerCase() === "admin@agroiq.com" && !withApproval.password) {
           return { ...withApproval, password: "admin123", approved: true };
         }
         return withApproval;

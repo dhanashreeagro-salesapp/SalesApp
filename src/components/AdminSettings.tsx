@@ -405,12 +405,18 @@ export default function AdminSettings({
     invoices.forEach(inv => {
       if (inv.region) groups.add(inv.region);
     });
+    // Add all registered users who can act as a manager (Regional Manager, Sales Director, Admin)
+    users.forEach(u => {
+      if (u.role === "Regional Manager" || u.role === "Sales Director" || u.role === "Admin") {
+        groups.add(u.name);
+      }
+    });
     // Ensure default RM's/regions remain selectable as fallbacks
     ["S. R. Patil", "K. Swamy", "R. K. Singh", "West", "South", "North", "Rahul Sawant"].forEach(g => {
       groups.add(g);
     });
     return Array.from(groups).sort();
-  }, [invoices]);
+  }, [invoices, users]);
 
   // Unique sub-groups from column "Name of sub group" (stored as territory in invoices list)
   const uniqueSubGroups = React.useMemo(() => {
@@ -710,11 +716,11 @@ export default function AdminSettings({
     setEditingUserId(u.id);
     setFormName(u.name);
     setFormEmail(u.email);
-    setFormPassword(u.password || "password123");
+    setFormPassword(u.password || "");
     setFormRole(u.role);
     setFormRegion(u.region || "West");
     setFormTerritory(u.territory || "West-1");
-    setFormManager(u.managerName || "Rahul Sawant");
+    setFormManager(u.managerName || "");
     setFormApproved(u.approved !== false);
   };
 

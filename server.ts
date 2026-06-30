@@ -646,6 +646,7 @@ app.get("/api/db", async (req, res) => {
         id: u.id,
         name: u.name,
         email: u.email,
+        password: u.password || "password123",
         role: u.role,
         region: u.region || undefined,
         territory: u.territory || undefined,
@@ -775,8 +776,9 @@ app.post("/api/users/save", async (req, res) => {
   let supabaseSynced = false;
   if (sb) {
     try {
-      // Resolve manager_id
-      const mgr = localUsers.find(u => u.name === updatedUser.managerName);
+      // Resolve manager_id using robust trim/lowercase match
+      const mgrName = updatedUser.managerName?.trim().toLowerCase();
+      const mgr = localUsers.find(u => u.name.trim().toLowerCase() === mgrName);
       const manager_id = mgr ? (mgr.id && !mgr.id.startsWith("user_") ? mgr.id : null) : null;
 
       const userRow = {
@@ -800,7 +802,8 @@ app.post("/api/users/save", async (req, res) => {
       }
       supabaseSynced = true;
     } catch (err: any) {
-      console.warn("Suppressed profile write failure to Supabase, continuing locally:", err.message);
+      console.error("Profile write failure to Supabase:", err.message);
+      return res.status(500).json({ error: `Database write failure: ${err.message}. Please configure SUPABASE_SERVICE_ROLE_KEY or disable Row Level Security (RLS) on the 'users' table in the Supabase console.` });
     }
   }
 
@@ -887,8 +890,9 @@ app.post("/api/users/save-bulk", async (req, res) => {
       const sortedUsers = [...updatedUsers].sort((a, b) => (rolePriority[a.role] || 5) - (rolePriority[b.role] || 5));
 
       const rows = sortedUsers.map(u => {
-        // Resolve manager_id
-        const mgr = localUsers.find(m => m.name === u.managerName);
+        // Resolve manager_id using robust trim/lowercase match
+        const mgrName = u.managerName?.trim().toLowerCase();
+        const mgr = localUsers.find(m => m.name.trim().toLowerCase() === mgrName);
         const manager_id = mgr ? (mgr.id && !mgr.id.startsWith("user_") ? mgr.id : null) : null;
         
         return {
@@ -909,7 +913,8 @@ app.post("/api/users/save-bulk", async (req, res) => {
       if (ue) throw ue;
       supabaseSynced = true;
     } catch (err: any) {
-      console.warn("Suppressed bulk profile write failure to Supabase, continuing locally:", err.message);
+      console.error("Bulk profile write failure to Supabase:", err.message);
+      return res.status(500).json({ error: `Database write failure: ${err.message}. Please configure SUPABASE_SERVICE_ROLE_KEY or disable Row Level Security (RLS) on the 'users' table in the Supabase console.` });
     }
   }
 
