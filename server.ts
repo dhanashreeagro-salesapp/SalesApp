@@ -776,10 +776,15 @@ app.post("/api/users/save", async (req, res) => {
   let supabaseSynced = false;
   if (sb) {
     try {
-      // Resolve manager_id using robust trim/lowercase match
-      const mgrName = updatedUser.managerName?.trim().toLowerCase();
-      const mgr = localUsers.find(u => u.name.trim().toLowerCase() === mgrName);
-      const manager_id = mgr ? (mgr.id && !mgr.id.startsWith("user_") ? mgr.id : null) : null;
+      // Resolve manager_id
+      let manager_id = updatedUser.managerId && !updatedUser.managerId.startsWith("user_") ? updatedUser.managerId : null;
+      if (!manager_id && updatedUser.managerName) {
+        const { data: dbUsers } = await sb.from("users").select("id, name");
+        const mgr = (dbUsers || []).find(u => u.name.trim().toLowerCase() === updatedUser.managerName!.trim().toLowerCase());
+        if (mgr) {
+          manager_id = mgr.id;
+        }
+      }
 
       const userRow = {
         // Only strip if it's the client-side mock string
@@ -889,11 +894,17 @@ app.post("/api/users/save-bulk", async (req, res) => {
       };
       const sortedUsers = [...updatedUsers].sort((a, b) => (rolePriority[a.role] || 5) - (rolePriority[b.role] || 5));
 
+      const { data: dbUsers } = await sb.from("users").select("id, name");
+      const dbUsersList = dbUsers || [];
+
       const rows = sortedUsers.map(u => {
-        // Resolve manager_id using robust trim/lowercase match
-        const mgrName = u.managerName?.trim().toLowerCase();
-        const mgr = localUsers.find(m => m.name.trim().toLowerCase() === mgrName);
-        const manager_id = mgr ? (mgr.id && !mgr.id.startsWith("user_") ? mgr.id : null) : null;
+        let manager_id = u.managerId && !u.managerId.startsWith("user_") ? u.managerId : null;
+        if (!manager_id && u.managerName) {
+          const mgr = dbUsersList.find(m => m.name.trim().toLowerCase() === u.managerName!.trim().toLowerCase());
+          if (mgr) {
+            manager_id = mgr.id;
+          }
+        }
         
         return {
           id: u.id && u.id.startsWith("user_") ? undefined : u.id,

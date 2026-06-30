@@ -286,9 +286,10 @@ export async function saveUserProfileToSupabase(user: Partial<UserProfile> & { p
   const sb = getSupabase();
   if (!sb) return false;
 
-  let manager_id = user.managerId || null;
-  if (!manager_id && user.managerName && allUsers) {
-    const mgr = allUsers.find(u => u.name.trim().toLowerCase() === user.managerName!.trim().toLowerCase());
+  let manager_id = user.managerId && !user.managerId.startsWith("user_") ? user.managerId : null;
+  if (!manager_id && user.managerName) {
+    const { data: dbUsers } = await sb.from("users").select("id, name");
+    const mgr = (dbUsers || []).find(u => u.name.trim().toLowerCase() === user.managerName!.trim().toLowerCase());
     if (mgr) {
       manager_id = mgr.id;
     }
@@ -324,17 +325,20 @@ export async function saveUserProfilesToSupabase(usersList: Partial<UserProfile>
   const sb = getSupabase();
   if (!sb) return false;
 
-  // Resolve manager_ids in bulk
+  // Resolve manager_ids dynamically from database
+  const { data: dbUsers } = await sb.from("users").select("id, name");
+  const dbUsersList = dbUsers || [];
+
   const rows = usersList.map(user => {
-    let manager_id = user.managerId || null;
-    if (!manager_id && user.managerName && allUsers) {
-      const mgr = allUsers.find(u => u.name.trim().toLowerCase() === user.managerName!.trim().toLowerCase());
+    let manager_id = user.managerId && !user.managerId.startsWith("user_") ? user.managerId : null;
+    if (!manager_id && user.managerName) {
+      const mgr = dbUsersList.find(u => u.name.trim().toLowerCase() === user.managerName!.trim().toLowerCase());
       if (mgr) {
         manager_id = mgr.id;
       }
     }
     return {
-      id: user.id || undefined,
+      id: user.id && user.id.startsWith("user_") ? undefined : (user.id || undefined),
       name: user.name,
       email: user.email,
       password: user.password || "password123",
