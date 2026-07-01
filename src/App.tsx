@@ -214,8 +214,8 @@ export default function App() {
         );
         if (cachedMatch) {
           return {
-            ...u,
             ...cachedMatch,
+            ...u,
             id: u.id || cachedMatch.id
           };
         }
@@ -250,13 +250,15 @@ export default function App() {
       });
 
       // Ensure all preloaded seed users exist in the client verifiedUsers list (Uniquely matched by email id)
-      SEED_USERS.forEach((seedUser: any) => {
-        if (!verifiedUsers.some((u: any) => 
-          u.email && seedUser.email && u.email.toLowerCase() === seedUser.email.toLowerCase()
-        )) {
-          verifiedUsers.push({ ...seedUser, approved: true, password: "password123" });
-        }
-      });
+      if (!isSupabaseConfigured() && !loadedFromBackend) {
+        SEED_USERS.forEach((seedUser: any) => {
+          if (!verifiedUsers.some((u: any) => 
+            u.email && seedUser.email && u.email.toLowerCase() === seedUser.email.toLowerCase()
+          )) {
+            verifiedUsers.push({ ...seedUser, approved: true, password: "password123" });
+          }
+        });
+      }
 
       // Quick double check: if dhanashree is somehow absent from list, prepend/append her
       if (!verifiedUsers.some((u: any) => u.email && u.email.toLowerCase() === "dhanashree.agro@gmail.com")) {

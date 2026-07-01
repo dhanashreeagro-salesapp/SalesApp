@@ -312,7 +312,7 @@ export async function saveUserProfileToSupabase(user: Partial<UserProfile> & { p
     .upsert({
       id: user.id && user.id.startsWith("user_") ? undefined : (user.id || undefined),
       ...row
-    });
+    }, { onConflict: "email" });
 
   if (error) {
     console.error("Error upserting user profile into Supabase:", error);
@@ -353,7 +353,7 @@ export async function saveUserProfilesToSupabase(usersList: Partial<UserProfile>
 
   const { error } = await sb
     .from("users")
-    .upsert(rows);
+    .upsert(rows, { onConflict: "email" });
 
   if (error) {
     console.error("Error upserting bulk user profiles into Supabase:", error);

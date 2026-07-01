@@ -99,7 +99,7 @@ export const SEED_USERS: UserProfile[] = [
   {
     id: "user_sushil_giri",
     name: "Sushil Giri",
-    email: "sushilgiri@agroiq.com",
+    email: "sgiri@plantnutrition.in",
     role: "Regional Manager",
     region: "West",
     managerName: "Rahul Sawant"
@@ -123,7 +123,7 @@ export const SEED_USERS: UserProfile[] = [
   {
     id: "user_rahul_borse",
     name: "Rahul Borse",
-    email: "rahulborse@agroiq.com",
+    email: "rborse@plantnutrition.in",
     role: "Salesperson",
     region: "West",
     territory: "West-3",
