@@ -537,21 +537,30 @@ export async function saveBudgetsToSupabase(budgets: BudgetItem[], usersList: Us
   const sb = getSupabase();
   if (!sb) return false;
 
-  // Resolve target salesperson corporate user IDs from names before insertion
-  const nameToId = new Map(usersList.map(u => [(u.name || "").trim().toLowerCase(), u.id]));
+  // Resolve manager/salesperson IDs using real database UUIDs
+  const { data: dbUsers } = await sb.from("users").select("id, name");
+  const dbUsersList = dbUsers || [];
 
   const rows = budgets.map(b => {
     const spKey = (b.salesperson || "").trim().toLowerCase();
-    const resolvedUserId = nameToId.get(spKey) || b.id; // fallback to row ID if user not matched
+    const dbMatch = dbUsersList.find(u => u.name && u.name.trim().toLowerCase() === spKey);
+    let resolvedUserId = dbMatch ? dbMatch.id : null;
+
+    if (!resolvedUserId) {
+      const clientMatch = usersList.find(u => u.name && u.name.trim().toLowerCase() === spKey);
+      if (clientMatch && clientMatch.id && !clientMatch.id.startsWith("user_")) {
+        resolvedUserId = clientMatch.id;
+      }
+    }
 
     return {
-      id: b.id && b.id.startsWith("bud_upl_") ? undefined : b.id,
+      id: b.id && (b.id.startsWith("bud_upl_") || b.id.startsWith("bud_")) ? undefined : b.id,
       product_name: b.product,
       budget_quantity: b.budgetQuantity,
       budget_value: b.budgetValue,
       month: b.month,
       financial_year: b.financialYear,
-      salesperson_id: resolvedUserId && resolvedUserId.includes("user_") ? null : resolvedUserId
+      salesperson_id: resolvedUserId
     };
   }).filter(r => r.salesperson_id !== null); // safety filter
 

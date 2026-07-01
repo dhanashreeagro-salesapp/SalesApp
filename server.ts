@@ -1045,11 +1045,10 @@ app.post("/api/db/save", async (req, res) => {
         // Direct targets overwrite
         await sb.from("budget_data").delete().not("id", "is", null);
         const { data: dbUsers } = await sb.from("users").select("id, name");
-        const nameToId = new Map((dbUsers || []).map((u: any) => [u.name.toLowerCase().trim(), u.id]));
-
         const bRows = budgets.map(b => {
           const spKey = (b.salesperson || "").trim().toLowerCase();
-          const salespersonId = nameToId.get(spKey) || null;
+          const dbMatch = (dbUsers || []).find((u: any) => u.name && u.name.toLowerCase().trim() === spKey);
+          const salespersonId = dbMatch ? dbMatch.id : null;
           return {
             product_name: b.product || b.productName,
             budget_quantity: b.budgetQuantity,

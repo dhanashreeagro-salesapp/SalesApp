@@ -71,7 +71,14 @@ export default function BudgetLedger({ budgets, onUpdateBudgets }: BudgetLedgerP
         b => (b.salesperson || "").trim().toLowerCase() === spName.trim().toLowerCase() && 
              (b.financialYear || "").trim().toLowerCase() === fYear.trim().toLowerCase()
       );
-      setDraftItems(JSON.parse(JSON.stringify(matching)));
+      const matchingWithRate = matching.map(b => {
+        const rate = b.budgetRate || (b.budgetQuantity > 0 ? b.budgetValue / b.budgetQuantity : 500);
+        return {
+          ...b,
+          budgetRate: rate
+        };
+      });
+      setDraftItems(JSON.parse(JSON.stringify(matchingWithRate)));
       setDetailSearchTerm("");
       setSaveSuccess(null);
     } else {

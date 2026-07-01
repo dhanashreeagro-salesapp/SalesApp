@@ -426,11 +426,13 @@ export default function App() {
   const handleLoginSuccess = (user: UserProfile) => {
     setSelectedUser(user);
     setIsAuthenticated(true);
+    setActiveTab("executive");
     safeSetLocalStorage("agroSalesSession", JSON.stringify(user));
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setActiveTab("executive");
     localStorage.removeItem("agroSalesSession");
     if (users.length > 0) {
       setSelectedUser(users[0]);

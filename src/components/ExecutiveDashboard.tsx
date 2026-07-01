@@ -208,7 +208,14 @@ export default function ExecutiveDashboard({
 
   // Real-time custom regional manager subordinate listing
   const mySubordinates = React.useMemo(() => {
-    if (currentUser.role !== "Regional Manager") return [];
+    if (currentUser.role !== "Regional Manager" && currentUser.role !== "Sales Director" && currentUser.role !== "Admin") {
+      // If salesperson, check if anyone actually reports to them in the database
+      const hasReports = (users || []).some(usr => 
+        usr.id !== currentUser.id && 
+        ((usr.managerName && isFuzzyNameMatch(currentUser.name, usr.managerName)) || usr.managerId === currentUser.id)
+      );
+      if (!hasReports) return [];
+    }
     const rmNameNorm = (currentUser.name || "").trim().toLowerCase();
     const rmEmailNorm = (currentUser.email || "").trim().toLowerCase();
     const rmIdNorm = (currentUser.id || "").trim().toLowerCase();
@@ -773,25 +780,19 @@ export default function ExecutiveDashboard({
   const tabsList = React.useMemo(() => {
     const list = [
       { id: "dashboard", label: "Dashboard", desc: "Executive KPI Hub" },
-    ];
-
-    if (currentUser.role === "Salesperson" || currentUser.role === "Regional Manager") {
-      list.push({ id: "commandDesk", label: "My Sales Desk", desc: "Portfolio & Hierarchy" });
-    }
-
-    list.push(
+      { id: "commandDesk", label: "My Sales Desk", desc: "Portfolio & Hierarchy" },
       { id: "product", label: "Product Comparative", desc: "SKU Volume Standings" },
       { id: "customer", label: "Customer Standings", desc: "Dealer Accounts" },
       { id: "supplier", label: "Suppliers Performance", desc: "Vendor Analysis" },
       { id: "lost", label: "Dropped & Lost CRM", desc: "CRM Risk Audit" },
       { id: "yoy", label: "YoY Comparison", desc: "Year over Year Grid" }
-    );
+    ];
 
     if (hasBudget) {
       list.push({ id: "budgetVsActual", label: "Budget v/s Actual", desc: "Sales Target Standing" });
     }
     return list;
-  }, [hasBudget, currentUser]);
+  }, [hasBudget]);
 
   return (
     <div className="space-y-6">
