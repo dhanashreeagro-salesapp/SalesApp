@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { InvoiceItem, BudgetItem, UserProfile } from "./types";
+import { InvoiceItem, BudgetItem, UserProfile } from "./types.js";
 
 // User database
 export const SEED_USERS: UserProfile[] = [
