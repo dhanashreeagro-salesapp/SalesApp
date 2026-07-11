@@ -1460,7 +1460,7 @@ export default function ExecutiveDashboard({
 
                 <div className="max-h-120 overflow-y-auto rounded-xl border border-teal-150 bg-white">
                   <table className="w-full text-left border-collapse text-xs">
-                    <thead className="bg-teal-50/50 text-slate-600 font-bold border-b border-teal-100 uppercase tracking-wider text-[9px]">
+                    <thead className="bg-teal-50/50 text-slate-600 font-bold border-b border-teal-100 uppercase tracking-wider text-[9px] sticky top-0 bg-white">
                       <tr>
                         <th className="p-3">Customer Acc Name</th>
                         <th className="p-3 text-right">CY Sales (Lakhs)</th>
@@ -1482,6 +1482,15 @@ export default function ExecutiveDashboard({
                         </tr>
                       )}
                     </tbody>
+                    {assignedCustomers.length > 0 && (
+                      <tfoot className="bg-teal-50/90 backdrop-blur-xs font-bold border-t border-teal-200 text-slate-900 text-[11px] sticky bottom-0">
+                        <tr>
+                          <td className="p-3 font-bold text-teal-900">Total Portfolio</td>
+                          <td className="p-3 text-right text-teal-800 font-extrabold font-mono">₹{(assignedCustomers.reduce((sum, c) => sum + c.cyAmt, 0) / 100000).toFixed(2)} L</td>
+                          <td className="p-3 text-right text-slate-750 font-extrabold font-mono">₹{(assignedCustomers.reduce((sum, c) => sum + c.lyAmt, 0) / 100000).toFixed(2)} L</td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               </div>
@@ -1512,40 +1521,46 @@ export default function ExecutiveDashboard({
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {subordinateHierarchy.length > 0 ? (
-                    subordinateHierarchy.map((sub, spIdx) => (
-                      <div key={spIdx} className="bg-white rounded-xl border border-blue-100 p-4 space-y-3.5 shadow-2xs">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                              <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                              {sub.subordinate.name}
-                            </h4>
-                            <p className="text-[10px] text-slate-500 font-medium">{sub.subordinate.email}</p>
+                    subordinateHierarchy.map((sub, spIdx) => {
+                      const subTotalCySales = sub.customers.reduce((sum, c) => sum + c.cySales, 0);
+                      return (
+                        <div key={spIdx} className="bg-white rounded-xl border border-blue-100 p-4 space-y-3.5 shadow-2xs">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                                <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                                {sub.subordinate.name}
+                              </h4>
+                              <p className="text-[10px] text-slate-500 font-medium">{sub.subordinate.email}</p>
+                              <span className="inline-block bg-blue-50 text-blue-700 text-[9px] font-bold px-2 py-0.5 rounded-md mt-1.5 border border-blue-150">
+                                CY Sales: ₹{(subTotalCySales / 100000).toFixed(2)} L
+                              </span>
+                            </div>
+                            <span className="bg-blue-50 text-blue-800 text-[9px] font-bold px-2 py-0.5 rounded-md font-mono shrink-0">
+                              {sub.subordinate.role === "Regional Manager" ? "Regional Manager" : (sub.subordinate.territory || "No Territory")}
+                            </span>
                           </div>
-                          <span className="bg-blue-50 text-blue-800 text-[9px] font-bold px-2 py-0.5 rounded-md font-mono">
-                            {sub.subordinate.role === "Regional Manager" ? "Regional Manager" : (sub.subordinate.territory || "No Territory")}
-                          </span>
-                        </div>
 
-                        <div className="space-y-1.5">
-                          <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">Assigned Dealer Accounts ({sub.customers.length})</span>
-                          <div className="bg-slate-50/50 rounded-lg p-2.5 max-h-40 overflow-y-auto border border-slate-100 divide-y divide-slate-100">
-                            {sub.customers.length > 0 ? (
-                              sub.customers.map((cust, cIdx) => (
-                                <div key={cIdx} className="flex items-center justify-between text-[11px] py-1.5 font-medium">
-                                  <div className="truncate pr-2">
-                                    <p className="text-slate-800 font-semibold truncate leading-tight" title={cust.name}>{cust.name}</p>
+                          <div className="space-y-1.5">
+                            <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">Assigned Dealer Accounts ({sub.customers.length})</span>
+                            <div className="bg-slate-50/50 rounded-lg p-2.5 max-h-40 overflow-y-auto border border-slate-100 divide-y divide-slate-100">
+                              {sub.customers.length > 0 ? (
+                                sub.customers.map((cust, cIdx) => (
+                                  <div key={cIdx} className="flex items-center justify-between text-[11px] py-1.5 font-medium">
+                                    <div className="truncate pr-2">
+                                      <p className="text-slate-800 font-semibold truncate leading-tight" title={cust.name}>{cust.name}</p>
+                                    </div>
+                                    <span className="text-blue-700 font-bold font-mono text-[10px] shrink-0">₹{(cust.cySales/100000).toFixed(2)} L</span>
                                   </div>
-                                  <span className="text-blue-700 font-bold font-mono text-[10px] shrink-0">₹{(cust.cySales/100000).toFixed(2)} L</span>
-                                </div>
-                              ))
-                            ) : (
-                              <p className="text-[10px] text-slate-400 italic py-2 text-center">No customer invoices in scope.</p>
-                            )}
+                                ))
+                              ) : (
+                                <p className="text-[10px] text-slate-400 italic py-2 text-center">No customer invoices in scope.</p>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <div className="col-span-full p-8 text-center text-slate-400 italic border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
                       No active salesperson accounts report to {currentUser.name} (checked via database supervisor chains and fuzzy matching of salesperson names in regional invoice records).
