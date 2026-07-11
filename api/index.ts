@@ -2104,3 +2104,5 @@ async function startServer() {
 
 // Start the Express and Vite hybrid dev/production full-stack server
 startServer();
+
+export default app;
