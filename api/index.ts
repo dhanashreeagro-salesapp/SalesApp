@@ -38,7 +38,7 @@ let backupInvoices: any[] | null = null;
 let backupBudgets: any[] | null = null;
 
 // Lazy Load seed data inside server to write initial DB
-import { SEED_INVOICES, SEED_BUDGETS, SEED_USERS, INITIAL_AUDIT_LOGS, INITIAL_EMAIL_LOGS } from "../src/data/seedData";
+import { SEED_INVOICES, SEED_BUDGETS, SEED_USERS, INITIAL_AUDIT_LOGS, INITIAL_EMAIL_LOGS } from "./seedData";
 
 const sanitizeEnvVal = (val: string): string => {
   if (!val) return "";
