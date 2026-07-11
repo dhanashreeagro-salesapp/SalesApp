@@ -1794,7 +1794,7 @@ app.post("/api/admin/align-orphans", async (req, res) => {
   }
 });
 
-// 3. AI Smart Insights Chat proxy using recommended model gemini-3.5-flash
+// 3. AI Smart Insights Chat proxy using recommended model gemini-2.5-flash
 app.post("/api/gemini/insights", async (req, res) => {
   try {
     const { messages = [], contextData = {} } = req.body || {};
@@ -1902,7 +1902,7 @@ Provide detailed, humanized, extremely professional and highly precise enterpris
     }
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: formattedContents,
       config: {
         systemInstruction: systemPrompt,
@@ -2026,7 +2026,7 @@ Generate a valid HTML structured email. Do NOT include Markdown formatting (like
 Include bullet points for key KPI targets, highlight achievements or gaps, and generate deep AI advice tailored strictly to their access level. Ensure Sales Director gets the company-wide metrics, RM gets regional team ranks, and Salesperson gets individual numbers.`;
 
           const response = await ai.models.generateContent({
-            model: "gemini-3.5-flash",
+            model: "gemini-2.5-flash",
             contents: aiPrompt,
             config: {
               temperature: 0.2,
@@ -2095,9 +2095,11 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server started successfully on http://0.0.0.0:${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server started successfully on http://0.0.0.0:${PORT}`);
+    });
+  }
 }
 
 // Start the Express and Vite hybrid dev/production full-stack server
