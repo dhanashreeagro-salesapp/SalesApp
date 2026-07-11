@@ -176,7 +176,7 @@ export default function ExecutiveDashboard({
   // Real-time custom salesperson assignments
   const assignedCustomers = React.useMemo(() => {
     if (currentUser.role !== "Salesperson" && currentUser.role !== "Regional Manager") return [];
-    const customersMap = new Map<string, { name: string; code: string; count: number; totalAmt: number }>();
+    const customersMap = new Map<string, { name: string; code: string; cyAmt: number; lyAmt: number }>();
     const myName = currentUser.name || "";
     const myEmailNorm = (currentUser.email || "").trim().toLowerCase();
     const myIdNorm = (currentUser.id || "").trim().toLowerCase();
@@ -197,14 +197,22 @@ export default function ExecutiveDashboard({
       if (inv.customerName) {
         const code = inv.customerCode || "N/A";
         const key = `${inv.customerName.trim()}|||${code.trim()}`;
-        const existing = customersMap.get(key) || { name: inv.customerName, code, count: 0, totalAmt: 0 };
-        existing.count += 1;
-        existing.totalAmt += inv.netSalesValue;
+        const existing = customersMap.get(key) || { name: inv.customerName, code, cyAmt: 0, lyAmt: 0 };
+        
+        const invoiceDate = inv.invoiceDate;
+        if (invoiceDate >= period2Start && invoiceDate <= period2End) {
+          existing.cyAmt += inv.netSalesValue;
+        } else if (invoiceDate >= period1Start && invoiceDate <= period1End) {
+          existing.lyAmt += inv.netSalesValue;
+        }
+        
         customersMap.set(key, existing);
       }
     });
-    return Array.from(customersMap.values()).sort((a, b) => b.totalAmt - a.totalAmt);
-  }, [scopedInvoices, currentUser]);
+    return Array.from(customersMap.values())
+      .filter(cust => cust.cyAmt > 0 || cust.lyAmt > 0)
+      .sort((a, b) => b.cyAmt - a.cyAmt);
+  }, [scopedInvoices, currentUser, period1Start, period1End, period2Start, period2End]);
 
   // Real-time custom regional manager subordinate listing
   const mySubordinates = React.useMemo(() => {
@@ -234,23 +242,8 @@ export default function ExecutiveDashboard({
       // 1. Direct reports based on user profile structure
       const isDirectReport = (currentUser.name && isFuzzyNameMatch(currentUser.name, usr.managerName || "")) || 
                             (rmEmailNorm && mgrNorm === rmEmailNorm) ||
-                            (rmIdNorm && mgrNorm === rmIdNorm);
-      if (isDirectReport) return true;
-
-      // 2. Direct reports based on dynamic invoice assignments
-      let isInvoiceMatchedReport = false;
-      if (scopedInvoices && scopedInvoices.length > 0) {
-        scopedInvoices.forEach(inv => {
-          const invRm = inv.regionalManager || "";
-          const invSp = inv.salesperson || "";
-          if (isFuzzyNameMatch(currentUser.name, invRm)) {
-            if (isFuzzyNameMatch(usr.name, invSp)) {
-              isInvoiceMatchedReport = true;
-            }
-          }
-        });
-      }
-      return isInvoiceMatchedReport;
+                            (rmIdNorm && usr.managerId && usr.managerId.toLowerCase() === rmIdNorm);
+      return !!isDirectReport;
     });
   }, [users, currentUser, scopedInvoices]);
 
@@ -306,22 +299,27 @@ export default function ExecutiveDashboard({
         return subDealers.has(inv.customerName.trim().toLowerCase());
       });
       
-      const custMap = new Map<string, { name: string; code: string; totalAmt: number }>();
+      const custMap = new Map<string, { name: string; code: string; cySales: number }>();
       subInvoices.forEach(inv => {
         const code = inv.customerCode || "N/A";
         const key = `${inv.customerName.trim()}|||${code.trim()}`;
-        const existing = custMap.get(key) || { name: inv.customerName, code, totalAmt: 0 };
-        existing.totalAmt += inv.netSalesValue;
+        const existing = custMap.get(key) || { name: inv.customerName, code, cySales: 0 };
+        
+        const invoiceDate = inv.invoiceDate;
+        if (invoiceDate >= period2Start && invoiceDate <= period2End) {
+          existing.cySales += inv.netSalesValue;
+        }
+        
         custMap.set(key, existing);
       });
       
-      const customers = Array.from(custMap.values()).sort((a,b) => b.totalAmt - a.totalAmt);
+      const customers = Array.from(custMap.values()).sort((a,b) => b.cySales - a.cySales);
       return {
         subordinate: sub,
         customers
       };
     });
-  }, [mySubordinates, scopedInvoices, users]);
+  }, [mySubordinates, scopedInvoices, users, period2Start, period2End]);
 
   // Auto-reset when scopedInvoices size changes
   const lastInvoicesCountRef = React.useRef(scopedInvoices?.length || 0);
@@ -951,25 +949,6 @@ export default function ExecutiveDashboard({
           </div>
         )}
 
-        {/* Category segment filter */}
-        <div className="flex flex-col gap-1">
-          <span className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold">Product Segment</span>
-          <select
-            value={selectedCategory}
-            onChange={(e) => {
-              setSelectedCategory(e.target.value);
-              applyFilters(selectedCompanies, selectedRm, e.target.value, searchQuery);
-            }}
-            className="border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg px-3 py-1.5 text-xs text-gray-850 dark:text-slate-100 font-medium focus:outline-none focus:border-green-600 focus:ring-1 focus:ring-green-600 shadow-3xs cursor-pointer"
-          >
-            <option value="All">All Segments</option>
-            <option value="Plant Nutrients">Plant Nutrients</option>
-            <option value="Fertilizers">Fertilizers</option>
-            <option value="Biostimulants">Biostimulants</option>
-            <option value="Microbial products">Microbial products</option>
-          </select>
-        </div>
-
         {/* Customer text lookup */}
         <div className="flex-1 min-w-[185px] flex flex-col gap-1">
           <span className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold">Search Client Accounts</span>
@@ -1202,25 +1181,6 @@ export default function ExecutiveDashboard({
                   </select>
                 </div>
               )}
-
-              {/* Category selector on mobile */}
-              <div className="space-y-1.5">
-                <span className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold block">Product Segment catalog</span>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => {
-                    setSelectedCategory(e.target.value);
-                    applyFilters(selectedCompanies, selectedRm, e.target.value, searchQuery);
-                  }}
-                  className="w-full border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-xl px-3 py-2.5 text-xs text-gray-900 dark:text-slate-100 font-medium focus:outline-none"
-                >
-                  <option value="All">All Segments</option>
-                  <option value="Plant Nutrients">Plant Nutrients</option>
-                  <option value="Fertilizers">Fertilizers</option>
-                  <option value="Biostimulants">Biostimulants</option>
-                  <option value="Microbial products">Microbial products</option>
-                </select>
-              </div>
 
               {/* Close / Apply action buttons */}
               <div className="flex gap-3 pt-2">
@@ -1503,8 +1463,8 @@ export default function ExecutiveDashboard({
                     <thead className="bg-teal-50/50 text-slate-600 font-bold border-b border-teal-100 uppercase tracking-wider text-[9px]">
                       <tr>
                         <th className="p-3">Customer Acc Name</th>
-                        <th className="p-3 text-right">Transactions</th>
-                        <th className="p-3 text-right">Total Net Sales</th>
+                        <th className="p-3 text-right">CY Sales (Lakhs)</th>
+                        <th className="p-3 text-right">LY Sales (Lakhs)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -1512,8 +1472,8 @@ export default function ExecutiveDashboard({
                         assignedCustomers.map((cust, itemIdx) => (
                           <tr key={itemIdx} className="hover:bg-slate-50 font-medium">
                             <td className="p-3 font-semibold text-slate-900">{cust.name}</td>
-                            <td className="p-3 text-right font-semibold">{cust.count} ledger lines</td>
-                            <td className="p-3 text-right text-emerald-700 font-bold font-mono">₹{cust.totalAmt.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td className="p-3 text-right text-teal-700 font-semibold font-mono">₹{(cust.cyAmt / 100000).toFixed(2)} L</td>
+                            <td className="p-3 text-right text-slate-500 font-mono">₹{(cust.lyAmt / 100000).toFixed(2)} L</td>
                           </tr>
                         ))
                       ) : (
@@ -1527,8 +1487,8 @@ export default function ExecutiveDashboard({
               </div>
             )}
 
-            {/* 🌳 Regional Manager Reporting Sales Team Block */}
-            {currentUser.role === "Regional Manager" && (
+            {/* 🌳 Reporting Sales Team Hierarchy Block */}
+            {(currentUser.role === "Regional Manager" || currentUser.role === "Sales Director" || subordinateHierarchy.length > 0) && (
               <div className="bg-gradient-to-r from-blue-50/70 to-indigo-50/50 border border-blue-200 rounded-2xl p-5 shadow-xs text-left">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-blue-150 pb-4 mb-4">
                   <div className="flex items-start gap-3">
@@ -1576,7 +1536,7 @@ export default function ExecutiveDashboard({
                                   <div className="truncate pr-2">
                                     <p className="text-slate-800 font-semibold truncate leading-tight" title={cust.name}>{cust.name}</p>
                                   </div>
-                                  <span className="text-blue-700 font-bold font-mono text-[10px] shrink-0">₹{(cust.totalAmt/1000).toFixed(1)}k</span>
+                                  <span className="text-blue-700 font-bold font-mono text-[10px] shrink-0">₹{(cust.cySales/100000).toFixed(2)} L</span>
                                 </div>
                               ))
                             ) : (

@@ -274,11 +274,15 @@ export default function App() {
 
       // Resolve managerName from managerId dynamically for all loaded users
       verifiedUsers.forEach((u: any) => {
-        if (u.managerId && !u.managerName) {
+        if (u.managerId) {
           const mgr = verifiedUsers.find((m: any) => m.id === u.managerId);
           if (mgr) {
             u.managerName = mgr.name;
+          } else {
+            u.managerName = undefined;
           }
+        } else {
+          u.managerName = undefined;
         }
       });
 

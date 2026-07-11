@@ -166,27 +166,28 @@ export default function ProductComparativeTab({
     return scoredProductsList.filter(p => p.qtyDiff < 0).length;
   }, [scoredProductsList]);
 
+  const isValueView = productSubView === "topValue";
+
   // Chart data: Top 10 categories
   const top10BarData = useMemo(() => {
-    if (productSubView === "nonBilling") {
-      // For nonBilling we render the matching non-billing or declining products
-      return [...filteredProducts]
-        .slice(0, 10)
-        .map(p => ({
-          name: p.name,
-          "LY Qty": Math.round(p.p1Qty),
-          "TY Qty": Math.round(p.p2Qty)
-        }));
-    }
-    return [...scoredProductsList]
-      .sort((a, b) => b.p2Qty - a.p2Qty)
+    return [...filteredProducts]
       .slice(0, 10)
-      .map(p => ({
-        name: p.name,
-        "LY Qty": Math.round(p.p1Qty),
-        "TY Qty": Math.round(p.p2Qty)
-      }));
-  }, [scoredProductsList, filteredProducts, productSubView]);
+      .map(p => {
+        if (isValueView) {
+          return {
+            name: p.name,
+            "LY Value": Math.round(p.p1Val),
+            "TY Value": Math.round(p.p2Val)
+          };
+        } else {
+          return {
+            name: p.name,
+            "LY Qty": Math.round(p.p1Qty),
+            "TY Qty": Math.round(p.p2Qty)
+          };
+        }
+      });
+  }, [filteredProducts, isValueView]);
 
   return (
     <div className="space-y-6" id="productComparativeWorkspace">
@@ -218,7 +219,7 @@ export default function ProductComparativeTab({
             </button>
           ))}
         </div>
-
+ 
         <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
           Filter bounds: {filteredProducts.length} segments parsed
         </span>
@@ -262,11 +263,17 @@ export default function ProductComparativeTab({
           <h4 className="text-xs font-bold text-gray-950 uppercase tracking-widest">
             {productSubView === "nonBilling" 
               ? "Non-Billing & Volumetric Decline Product Segments" 
+              : isValueView
+              ? "Top Category Segments Comparative Value Standings"
+              : productSubView === "bottom20qty"
+              ? "Bottom Category Segments Comparative Volume Standings"
               : "Top Category Segments Comparative Volume Standings"}
           </h4>
           <p className="text-[10px] text-gray-450">
             {productSubView === "nonBilling"
               ? "Current volume outputs for missing or highest declining segments versus previous period"
+              : isValueView
+              ? "Current sales value outputs versus matching historical bounds"
               : "Current volume outputs versus matching historical bounds"}
           </p>
         </div>
@@ -277,10 +284,26 @@ export default function ProductComparativeTab({
               <BarChart data={top10BarData} margin={{ left: -10, right: 10, top: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" fontSize={9} stroke="#94a3b8" tickLine={false} />
-                <YAxis fontSize={9} stroke="#94a3b8" tickLine={false} />
-                <Tooltip />
-                <Bar name="LY Qty (P1)" dataKey="LY Qty" fill="#94a3b8" radius={[2, 2, 0, 0]} />
-                <Bar name="TY Qty (P2)" dataKey="TY Qty" fill="#2563eb" radius={[2, 2, 0, 0]} />
+                <YAxis 
+                  fontSize={9} 
+                  stroke="#94a3b8" 
+                  tickLine={false} 
+                  tickFormatter={val => isValueView ? `₹${(val/1000).toFixed(0)}k` : `${val}`}
+                />
+                <Tooltip 
+                  formatter={v => isValueView ? `₹${Number(v).toLocaleString()}` : `${Number(v).toLocaleString()} kg`}
+                />
+                {isValueView ? (
+                  <>
+                    <Bar name="LY Value (P1)" dataKey="LY Value" fill="#94a3b8" radius={[2, 2, 0, 0]} />
+                    <Bar name="TY Value (P2)" dataKey="TY Value" fill="#2563eb" radius={[2, 2, 0, 0]} />
+                  </>
+                ) : (
+                  <>
+                    <Bar name="LY Qty (P1)" dataKey="LY Qty" fill="#94a3b8" radius={[2, 2, 0, 0]} />
+                    <Bar name="TY Qty (P2)" dataKey="TY Qty" fill="#2563eb" radius={[2, 2, 0, 0]} />
+                  </>
+                )}
               </BarChart>
             </ResponsiveContainer>
           ) : (

@@ -88,17 +88,29 @@ export default function CustomerStandingsTab({
     return scoredCustomers.filter(c => c.status === "New Customer").length;
   }, [scoredCustomers]);
 
-  // Chart data: Top 10 by Value
+  const isValueView = customerSubView === "topValue";
+
+  // Chart data: Top 10 by active subview selection
   const top10CustomersChart = useMemo(() => {
-    return [...scoredCustomers]
-      .sort((a,b) => b.p2Val - a.p2Val)
+    return [...filteredCustomers]
       .slice(0, 10)
-      .map(c => ({
-        name: c.customerName.split(" ").slice(0, 2).join(" "),
-        Value: Math.round(c.p2Val),
-        Baseline: Math.round(c.p1Val)
-      }));
-  }, [scoredCustomers]);
+      .map(c => {
+        const namePart = c.customerName.split(" ").slice(0, 2).join(" ");
+        if (isValueView) {
+          return {
+            name: namePart,
+            "LY Value": Math.round(c.p1Val),
+            "TY Value": Math.round(c.p2Val)
+          };
+        } else {
+          return {
+            name: namePart,
+            "LY Qty": Math.round(c.p1Qty),
+            "TY Qty": Math.round(c.p2Qty)
+          };
+        }
+      });
+  }, [filteredCustomers, isValueView]);
 
   return (
     <div className="space-y-6" id="customerStandingsWorkspace">
@@ -111,7 +123,6 @@ export default function CustomerStandingsTab({
             { id: "topQty", label: "Top Volume" },
             { id: "topValue", label: "Top Value Partner" },
             { id: "bottom20", label: "Bottom Laggards" },
-            { id: "regionBreakdown", label: "Region Segments" },
           ].map(view => (
             <button
               key={view.id}
@@ -147,10 +158,10 @@ export default function CustomerStandingsTab({
           <Award className="w-5 h-5 text-blue-400 dark:text-blue-500 shrink-0" />
         </div>
 
-        <div className="bg-green-50/50 dark:bg-green-950/20 border border-green-100 dark:border-green-900/40 p-4 rounded-xl text-left flex items-center justify-between customer-kpi-block font-sans">
+        <div className="bg-green-50/50 dark:bg-green-950/20 border border-green-105 p-4 rounded-xl text-left flex items-center justify-between customer-kpi-block font-sans">
           <div>
             <span className="text-[9px] font-bold uppercase tracking-wider text-green-700 dark:text-green-400">New Onboardings</span>
-            <div className="text-lg font-black text-green-900 dark:text-green-100 mt-1">{newAccountsOnboarded} Active Accounts</div>
+            <div className="text-lg font-black text-green-950 mt-1">{newAccountsOnboarded} Active Accounts</div>
             <span className="text-[9px] text-gray-500 dark:text-slate-450">New billing registrations with no baseline histories</span>
           </div>
           <Sparkles className="w-5 h-5 text-green-400 dark:text-green-500 shrink-0" />
@@ -170,8 +181,18 @@ export default function CustomerStandingsTab({
       {/* Top 10 customer sales bar value comparison */}
       <div className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-2xl p-4 md:p-5 shadow-2xs space-y-4">
         <div className="text-left">
-          <h4 className="text-xs font-bold text-gray-950 dark:text-slate-100 uppercase tracking-widest">Top 10 Dealer Account Net Sales Contribution</h4>
-          <p className="text-[10px] text-gray-450 dark:text-slate-400 font-medium font-sans">Dealer performance value ranking comparison indices</p>
+          <h4 className="text-xs font-bold text-gray-950 dark:text-slate-100 uppercase tracking-widest">
+            {customerSubView === "bottom20"
+              ? "Bottom 10 Dealer Account Comparative Volume Standings"
+              : isValueView
+              ? "Top 10 Dealer Account Net Sales Value Standings"
+              : "Top 10 Dealer Account Comparative Volume Standings"}
+          </h4>
+          <p className="text-[10px] text-gray-450 dark:text-slate-400 font-medium font-sans">
+            {isValueView
+              ? "Dealer sales value contribution ranking comparison indices"
+              : "Dealer sales volume contribution ranking comparison indices"}
+          </p>
         </div>
 
         <div className="h-[200px] w-full text-xs animate-fade-in">
@@ -180,13 +201,27 @@ export default function CustomerStandingsTab({
               <BarChart data={top10CustomersChart} margin={{ left: -15, right: 10, top: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.15)" />
                 <XAxis dataKey="name" fontSize={8} stroke="#94a3b8" tickLine={false} />
-                <YAxis fontSize={8} stroke="#94a3b8" tickLine={false} tickFormatter={(val) => `₹${val/1000}k`} />
+                <YAxis 
+                  fontSize={8} 
+                  stroke="#94a3b8" 
+                  tickLine={false} 
+                  tickFormatter={(val) => isValueView ? `₹${val/1000}k` : `${val}`} 
+                />
                 <Tooltip 
                   contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', border: 'none', borderRadius: '8px', color: '#fff' }}
-                  formatter={(v) => `₹${Number(v).toLocaleString()}`} 
+                  formatter={(v) => isValueView ? `₹${Number(v).toLocaleString()}` : `${Number(v).toLocaleString()} kg`} 
                 />
-                <Bar dataKey="Baseline" name="P1 Value" fill="#94a3b8" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="Value" name="P2 Value" fill="#2563eb" radius={[2, 2, 0, 0]} />
+                {isValueView ? (
+                  <>
+                    <Bar dataKey="LY Value" name="P1 Value" fill="#94a3b8" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="TY Value" name="P2 Value" fill="#2563eb" radius={[2, 2, 0, 0]} />
+                  </>
+                ) : (
+                  <>
+                    <Bar dataKey="LY Qty" name="P1 Volume" fill="#94a3b8" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="TY Qty" name="P2 Volume" fill="#2563eb" radius={[2, 2, 0, 0]} />
+                  </>
+                )}
               </BarChart>
             </ResponsiveContainer>
           ) : (

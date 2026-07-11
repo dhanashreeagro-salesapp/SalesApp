@@ -764,10 +764,10 @@ export default function AdminSettings({
       password: formPassword || "password123",
       role: formRole,
       approved: formApproved,
-      region: formRole !== "Admin" ? formRegion : undefined,
+      region: "",
       territory: formRole !== "Admin" ? formTerritory : undefined,
       managerName: formRole !== "Admin" ? formManager : undefined,
-      salespersonCode: formRole === "Salesperson" ? `SP_${(formRegion || "X")[0]}${Math.floor(Math.random() * 100)}` : undefined,
+      salespersonCode: formRole === "Salesperson" ? `SP_${Math.floor(Math.random() * 1000)}` : undefined,
     };
 
     const result = await onSaveUser(payload);
@@ -1185,22 +1185,7 @@ export default function AdminSettings({
 
               {formRole !== "Sales Director" && formRole !== "Admin" && (
                 <div className="p-3 bg-gray-50 border border-gray-150 rounded-xl space-y-3">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-gray-500 uppercase block">Operating Region</label>
-                    <select
-                      value={formRegion}
-                      onChange={(e) => setFormRegion(e.target.value)}
-                      className="w-full px-2 py-1 bg-white border border-gray-200 rounded-lg text-xs"
-                    >
-                      <option value="West">West</option>
-                      <option value="South">South</option>
-                      <option value="North">North</option>
-                      <option value="Global">Global</option>
-                      {uniqueNameOfGroups.map(p => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
-                  </div>
+
 
                   <div className="space-y-1">
                     <label className="text-[9px] font-bold text-gray-500 uppercase block">Territory Group Scope (Sub Group)</label>

@@ -1233,10 +1233,29 @@ export default function UploadCenter({
       return;
     }
 
-    setStagedBudgets(allCleanedBudgets);
+    // Deduplicate / Group staged budgets by salesperson + product + financialYear
+    const consolidatedBudgetsMap: Record<string, BudgetItem> = {};
+    allCleanedBudgets.forEach(b => {
+      const key = `${(b.salesperson || "").trim().toLowerCase()}|||${(b.product || "").trim().toLowerCase()}|||${(b.financialYear || "").trim()}`;
+      if (consolidatedBudgetsMap[key]) {
+        const existing = consolidatedBudgetsMap[key];
+        existing.budgetQuantity = (existing.budgetQuantity || 0) + (b.budgetQuantity || 0);
+        existing.budgetValue = (existing.budgetValue || 0) + (b.budgetValue || 0);
+        if (existing.budgetQuantity > 0) {
+          existing.budgetRate = existing.budgetValue / existing.budgetQuantity;
+        } else {
+          existing.budgetRate = b.budgetRate || existing.budgetRate || 500;
+        }
+      } else {
+        consolidatedBudgetsMap[key] = { ...b };
+      }
+    });
+    const finalBudgets = Object.values(consolidatedBudgetsMap);
+
+    setStagedBudgets(finalBudgets);
     setUploadStatus({
       type: "success",
-      message: `Parsed and validated ${allCleanedBudgets.length} Salesperson Budget Target Line Items across ${workbook.SheetNames.length} sheet(s) (Staged - Click Commit Below to Save)`,
+      message: `Parsed and validated ${finalBudgets.length} unique Salesperson Budget Target items across ${workbook.SheetNames.length} sheet(s) (Staged - Click Commit Below to Save)`,
       details: logs,
     });
   };

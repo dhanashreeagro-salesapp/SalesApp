@@ -52,7 +52,7 @@ export default function SuppliersPerformanceTab({
         tyShare,
         status
       };
-    }).sort((a,b) => b.p2Qty - a.p2Qty); // Sorted from highest to lowest volume descending
+    }).sort((a,b) => b.p2Val - a.p2Val); // Sorted from highest to lowest financial sales value descending
   }, [supplierStats, totalLYVal, totalTYVal]);
 
   // Sliced suppliers for pagination

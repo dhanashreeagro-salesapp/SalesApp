@@ -52,8 +52,8 @@ export default function DashboardOverviewTab({
   const qtyDiff = totalP2Qty - totalP1Qty;
   const qtyGrowth = totalP1Qty > 0 ? (qtyDiff / totalP1Qty) * 105 : 0; // consistent scaling
 
-  // Additional dynamic indicators requested by the user, calculated at Category Level
-  const regionsWithGrowth = useMemo(() => regionStats.filter(r => r.qtyDiff > 0).length, [regionStats]);
+  // Additional dynamic indicators calculated at Category/Dealer Level
+  const dealersWithGrowth = useMemo(() => customerStats.filter(c => c.qtyDiff > 0).length, [customerStats]);
   const productsWithGrowthValue = useMemo(() => productStats.filter(p => p.valDiff > 0).length, [productStats]);
   const productsWithGrowthQty = useMemo(() => productStats.filter(p => p.qtyDiff > 0).length, [productStats]);
   const productsWithDegrowthQty = useMemo(() => productStats.filter(p => p.qtyDiff < 0).length, [productStats]);
@@ -72,10 +72,10 @@ export default function DashboardOverviewTab({
     return list[0] && list[0].qtyDiff < 0 ? list[0] : null;
   }, [productStats]);
 
-  const worstRegion = useMemo(() => {
-    const list = [...regionStats].sort((a,b) => a.qtyGrowth - b.qtyGrowth);
+  const topCustomer = useMemo(() => {
+    const list = [...customerStats].sort((a,b) => b.p2Val - a.p2Val);
     return list[0] || null;
-  }, [regionStats]);
+  }, [customerStats]);
 
   const lostCustomersCount = useMemo(() => {
     return customerStats.filter(c => c.p1Qty > 0 && c.p2Qty === 0).length;
@@ -210,14 +210,14 @@ export default function DashboardOverviewTab({
           </div>
         </div>
 
-        {/* KPI 3: Regional Growth Stats */}
-        <div id="kpi-regions-growth" className="bg-white dark:bg-slate-900 border border-gray-105 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-1.5 text-left kpi-box-item transition-colors">
-          <span className="text-[10px] text-gray-400 dark:text-slate-400 font-bold uppercase tracking-widest block font-sans">Regions with Growth</span>
+        {/* KPI 3: Dealers with Growth */}
+        <div id="kpi-dealers-growth" className="bg-white dark:bg-slate-900 border border-gray-105 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-1.5 text-left kpi-box-item transition-colors">
+          <span className="text-[10px] text-gray-400 dark:text-slate-400 font-bold uppercase tracking-widest block font-sans">Dealers with Growth</span>
           <div className="text-xl font-extrabold text-gray-900 dark:text-slate-100 leading-none">
-            {regionsWithGrowth} <span className="text-xs text-gray-400 dark:text-slate-500 font-semibold">of {regionStats.length}</span>
+            {dealersWithGrowth} <span className="text-xs text-gray-400 dark:text-slate-500 font-semibold">of {customerStats.length}</span>
           </div>
           <div className="text-[10px] text-gray-500 dark:text-slate-400 leading-snug">
-            Regions experiencing positive dynamic expansion.
+            Dealers experiencing positive year-over-year volume expansion.
           </div>
         </div>
 
@@ -466,23 +466,23 @@ export default function DashboardOverviewTab({
           )}
         </div>
 
-        {/* Leaderboard card 3: Regional laggard */}
+        {/* Leaderboard card 3: Top Purchasing Dealer */}
         <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-2xs space-y-3.5">
           <div className="flex items-center gap-2">
-            <TrendingUp className="w-4.5 h-4.5 text-orange-600 shrink-0" style={{ transform: "rotate(180deg)" }} />
-            <span className="text-xs font-bold text-gray-800 uppercase tracking-widest block">Critical Region Status</span>
+            <Users className="w-4.5 h-4.5 text-blue-600 shrink-0" />
+            <span className="text-xs font-bold text-gray-800 uppercase tracking-widest block">Top Purchasing Dealer</span>
           </div>
-          {worstRegion ? (
+          {topCustomer ? (
             <div className="space-y-2">
-              <strong className="text-sm text-gray-900 block leading-tight">{worstRegion.regionName} Region</strong>
-              <div className="text-[11px] text-gray-500 space-y-1 bg-orange-50/40 p-3 rounded-xl border border-orange-100">
-                <div className="flex justify-between font-mono"><span>Baseline Qty:</span><strong>{Math.round(worstRegion.p1Qty).toLocaleString()}</strong></div>
-                <div className="flex justify-between font-mono"><span>Current Qty:</span><strong className="text-orange-700">{Math.round(worstRegion.p2Qty).toLocaleString()}</strong></div>
-                <div className="flex justify-between font-mono"><span>Region Growth:</span><span className={`font-bold ${worstRegion.qtyGrowth >= 0 ? "text-green-600" : "text-red-500"}`}>{worstRegion.qtyGrowth.toFixed(1)}%</span></div>
+              <strong className="text-sm text-gray-900 block leading-tight truncate" title={topCustomer.customerName}>{topCustomer.customerName}</strong>
+              <div className="text-[11px] text-gray-500 space-y-1 bg-blue-50/40 p-3 rounded-xl border border-blue-100">
+                <div className="flex justify-between font-mono"><span>Current Value:</span><strong className="text-blue-700">₹{Math.round(topCustomer.p2Val).toLocaleString()}</strong></div>
+                <div className="flex justify-between font-mono"><span>Baseline Value:</span><strong>₹{Math.round(topCustomer.p1Val).toLocaleString()}</strong></div>
+                <div className="flex justify-between font-mono"><span>Dealer Growth:</span><span className={`font-bold ${topCustomer.valGrowth >= 0 ? "text-green-600" : "text-red-500"}`}>{topCustomer.valGrowth >= 0 ? "+" : ""}{topCustomer.valGrowth.toFixed(1)}%</span></div>
               </div>
             </div>
           ) : (
-            <div className="text-xs text-gray-400 italic">No region found</div>
+            <div className="text-xs text-gray-400 italic">No dealer transactions detected</div>
           )}
         </div>
 

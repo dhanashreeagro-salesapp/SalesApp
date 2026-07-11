@@ -366,20 +366,6 @@ export default function InvoiceLedger({ invoices }: InvoiceLedgerProps) {
             )}
           </div>
 
-          {/* Region filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold text-gray-450 tracking-wider">Region:</span>
-            <select
-              value={selectedRegion}
-              onChange={(e) => setSelectedRegion(e.target.value)}
-              className="border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 text-xs text-gray-700 font-medium focus:outline-none focus:border-green-600 focus:ring-1 focus:ring-green-600"
-            >
-              <option value="All">All Regions</option>
-              {regions.map((reg, idx) => (
-                <option key={idx} value={reg}>{reg}</option>
-              ))}
-            </select>
-          </div>
 
           {/* Category filter */}
           <div className="flex items-center gap-2">

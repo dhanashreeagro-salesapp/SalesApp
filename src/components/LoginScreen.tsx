@@ -156,9 +156,9 @@ export default function LoginScreen({
           email: newEmail,
           role: newRole,
           password: newPassword,
-          region: newRole !== "Sales Director" && newRole !== "Admin" ? newRegion : undefined,
+          region: "",
           territory: newRole !== "Sales Director" && newRole !== "Admin" ? newTerritory : undefined,
-          salespersonCode: newRole === "Salesperson" ? `SP_${newTerritory.replace("-", "")}` : undefined
+          salespersonCode: newRole === "Salesperson" ? `SP_${newTerritory ? newTerritory.replace("-", "") : Math.floor(Math.random() * 100)}` : undefined
         };
         await supabaseSignUp(userPayload);
         setRegSuccess(`Registered ${newName} successfully on Supabase Auth database! You can now log in using these credentials.`);
@@ -192,10 +192,10 @@ export default function LoginScreen({
       role: newRole,
       password: newPassword,
       approved: false, // New users start as pending/unapproved!
-      region: newRole !== "Sales Director" && newRole !== "Admin" ? newRegion : undefined,
+      region: "",
       territory: newRole !== "Sales Director" && newRole !== "Admin" ? newTerritory : undefined,
       managerName: newRole !== "Sales Director" && newRole !== "Admin" ? newManager : undefined,
-      salespersonCode: newRole === "Salesperson" ? `SP_${newRegion[0]}${Math.floor(Math.random() * 100)}` : undefined,
+      salespersonCode: newRole === "Salesperson" ? `SP_${newTerritory ? newTerritory.replace("-", "") : Math.floor(Math.random() * 100)}` : undefined,
     };
 
     const result = await onRegisterUser(userPayload);
@@ -357,21 +357,8 @@ export default function LoginScreen({
 
               {newRole !== "Sales Director" && newRole !== "Admin" && (
                 <div className="grid grid-cols-2 gap-3 p-3 bg-gray-50 rounded-xl border border-gray-150">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-gray-500 uppercase tracking-wider block">Assigned Region</label>
-                    <select
-                      value={newRegion}
-                      onChange={(e) => setNewRegion(e.target.value)}
-                      className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-medium outline-none transition"
-                    >
-                      <option value="West">West</option>
-                      <option value="South">South</option>
-                      <option value="North">North</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-gray-500 uppercase tracking-wider block">Territory Group Scope (Sub Group)</label>
+                  <div className="space-y-1 col-span-2">
+                    <label className="text-[9px] font-bold text-gray-500 tracking-wider uppercase block">Territory Group Scope (Sub Group)</label>
                     <select
                       value={newTerritory}
                       onChange={(e) => setNewTerritory(e.target.value)}

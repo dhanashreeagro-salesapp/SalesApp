@@ -564,14 +564,30 @@ export async function saveBudgetsToSupabase(budgets: BudgetItem[], usersList: Us
     };
   }).filter(r => r.salesperson_id !== null); // safety filter
 
-  const { error } = await sb
+  // 1. Delete all existing records
+  const { error: deleteError } = await sb
     .from("budget_data")
-    .upsert(rows);
-
-  if (error) {
-    console.error("Cannot upsert target budgets in Supabase:", error);
+    .delete()
+    .neq("product_name", "");
+  
+  if (deleteError) {
+    console.error("Failed to clear budget targets before saving:", deleteError);
     return false;
   }
+
+  // 2. Insert new rows in chunks
+  const chunkSize = 500;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    const { error: insertError } = await sb
+      .from("budget_data")
+      .insert(chunk);
+    if (insertError) {
+      console.error("Failed to insert budget target chunk:", insertError);
+      return false;
+    }
+  }
+
   return true;
 }
 

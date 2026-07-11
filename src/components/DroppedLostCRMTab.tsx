@@ -180,72 +180,9 @@ export default function DroppedLostCRMTab({
         </div>
 
         <div className="bg-slate-50/80 border border-slate-200 rounded-xl p-4 shadow-3xs text-left space-y-1 indicator-card">
-          <span className="text-[10px] text-slate-505 font-bold uppercase tracking-wider block">Most Vulnerable Region</span>
-          <div className="text-lg font-extrabold text-slate-900 leading-none truncate">{worstCRMRegion.region} ({worstCRMRegion.lostCount} Lost)</div>
-          <span className="text-[10px] text-gray-400 font-semibold">Territorial map suffering maximum exits</span>
-        </div>
-
-      </div>
-
-      {/* Region audit dual chart logs */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 shadow-charts">
-        
-        {/* Lost accounts breakdown charts */}
-        <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-2xs lg:col-span-2 text-left space-y-4">
-          <div>
-            <h4 className="text-xs font-bold text-gray-950 uppercase tracking-widest flex items-center gap-1">
-              <ShieldAlert className="w-4 h-4 text-red-500 animate-pulse" /> Territorial Loss Concentration Density
-            </h4>
-            <p className="text-[10px] text-gray-440">Region counts with count indicators of dealer terminations and lost quantity distributions</p>
-          </div>
-
-          <div className="h-[185px] w-full text-xs">
-            {lostRegionChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={lostRegionChartData} margin={{ left: -15, right: 10, top: 10 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={9} tickLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} />
-                  <Tooltip />
-                  <Bar dataKey="Lost Accounts" fill="#ef4444" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="Lost Qty (x10)" fill="#f97316" radius={[2, 2, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-full items-center justify-center text-gray-400 italic">No region failures</div>
-            )}
-          </div>
-        </div>
-
-        {/* Small numeric region standings table */}
-        <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-2xs text-left space-y-3.5">
-          <div>
-            <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wide">Region Gap Rankings</h4>
-            <p className="text-[10px] text-gray-400">Total financial gaps by territorial exits</p>
-          </div>
-
-          <div className="overflow-x-auto text-[11px]">
-            <table className="w-full text-left" id="regionStandingsGapsTable">
-              <thead>
-                <tr className="border-b border-gray-50 text-gray-400 uppercase text-[9px] font-extrabold tracking-wide">
-                  <th className="pb-1.5">Region</th>
-                  <th className="pb-1.5 text-center">Exits</th>
-                  <th className="pb-1.5 text-right">Lost Qty</th>
-                  <th className="pb-1.5 text-right">Value (₹)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50 text-gray-600 font-semibold font-mono">
-                {regionLostBreakdown.map((r, idx) => (
-                  <tr key={idx}>
-                    <td className="py-2 text-gray-900 font-sans">{r.region}</td>
-                    <td className="py-2 text-center text-red-600">{r.lostCount}</td>
-                    <td className="py-2 text-right font-mono">{r.qtyLost.toLocaleString()}</td>
-                    <td className="py-2 text-right font-semibold text-gray-800">₹{r.valueLost.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <span className="text-[10px] text-slate-505 font-bold uppercase tracking-wider block">Declining Dealers (TY)</span>
+          <div className="text-2xl font-black text-slate-900 leading-none">{droppedCustomersList.length} Accounts</div>
+          <span className="text-[10px] text-gray-400 font-semibold">Dealers exhibiting over 15% shrinkage</span>
         </div>
 
       </div>

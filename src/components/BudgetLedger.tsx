@@ -66,19 +66,49 @@ export default function BudgetLedger({ budgets, onUpdateBudgets }: BudgetLedgerP
       const spName = parts[0];
       const fYear = parts[1];
       
-      // Load deep-copied rows into local state for draft editing
+      // Load deep-copied rows into local state and consolidate by product name
       const matching = budgets.filter(
         b => (b.salesperson || "").trim().toLowerCase() === spName.trim().toLowerCase() && 
              (b.financialYear || "").trim().toLowerCase() === fYear.trim().toLowerCase()
       );
-      const matchingWithRate = matching.map(b => {
-        const rate = b.budgetRate || (b.budgetQuantity > 0 ? b.budgetValue / b.budgetQuantity : 500);
+      
+      const productGroups: Record<string, BudgetItem[]> = {};
+      matching.forEach(b => {
+        const prod = (b.product || "").trim();
+        if (!productGroups[prod]) {
+          productGroups[prod] = [];
+        }
+        productGroups[prod].push(b);
+      });
+
+      const consolidated = Object.entries(productGroups).map(([prodName, items]) => {
+        const totalQty = items.reduce((sum, item) => sum + (item.budgetQuantity || 0), 0);
+        const totalVal = items.reduce((sum, item) => sum + (item.budgetValue || 0), 0);
+        
+        let rate = 500;
+        if (totalQty > 0) {
+          rate = totalVal / totalQty;
+        } else {
+          const itemWithRate = items.find(item => item.budgetRate && item.budgetRate > 0);
+          if (itemWithRate && itemWithRate.budgetRate) {
+            rate = itemWithRate.budgetRate;
+          } else {
+            const firstNonZeroQtyVal = items.find(item => item.budgetQuantity > 0);
+            if (firstNonZeroQtyVal) {
+              rate = firstNonZeroQtyVal.budgetValue / firstNonZeroQtyVal.budgetQuantity;
+            }
+          }
+        }
+        
         return {
-          ...b,
+          ...items[0],
+          budgetQuantity: totalQty,
+          budgetValue: totalVal,
           budgetRate: rate
         };
       });
-      setDraftItems(JSON.parse(JSON.stringify(matchingWithRate)));
+
+      setDraftItems(JSON.parse(JSON.stringify(consolidated)));
       setDetailSearchTerm("");
       setSaveSuccess(null);
     } else {
@@ -267,19 +297,18 @@ export default function BudgetLedger({ budgets, onUpdateBudgets }: BudgetLedgerP
   const handleSaveChanges = () => {
     if (!onUpdateBudgets) return;
 
-    // Create lookup index of draft edits
-    const draftIndex = new Map<string, BudgetItem>();
-    draftItems.forEach(d => {
-      draftIndex.set(d.id, d);
-    });
+    const parts = activeGroupKey!.split("|||");
+    const spName = parts[0].trim().toLowerCase();
+    const fYear = parts[1].trim().toLowerCase();
 
-    // Map existing budgets to updated values
-    const mergedBudgets = budgets.map(b => {
-      if (draftIndex.has(b.id)) {
-        return draftIndex.get(b.id)!;
-      }
-      return b;
-    });
+    // Filter out all previous rows for this salesperson and financial year
+    const otherBudgets = budgets.filter(
+      b => (b.salesperson || "").trim().toLowerCase() !== spName || 
+           (b.financialYear || "").trim().toLowerCase() !== fYear
+    );
+
+    // Append the consolidated edited items list
+    const mergedBudgets = [...otherBudgets, ...draftItems];
 
     onUpdateBudgets(mergedBudgets);
     setSaveSuccess("Successfully updated target database and synchronized server metrics.");
