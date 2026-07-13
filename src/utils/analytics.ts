@@ -225,6 +225,7 @@ export interface CompiledAnalytics {
   weakRegions: { region: string; growth: number }[];
   decliningSuppliers: { supplier: string; prev: number; current: number; diff: number }[];
   salespersonsBelowBudget: { name: string; budget: number; actual: number; targetShortfall: number }[];
+  productMonthlyComparisons: { productName: string; monthName: string; monthNum: number; currentSales: number; prevSales: number }[];
 }
 
 export function compileAnalytics(
@@ -394,26 +395,46 @@ export function compileAnalytics(
     });
   });
 
+  // Calculate individual actual sales
+  const individualActualMap = new Map<string, number>();
   currentInvoices.forEach((inv) => {
-    const sp = salespersonMap.get(inv.salesperson) || { name: inv.salesperson, region: inv.region, actual: 0, budget: 0 };
-    sp.actual += inv.netSalesValue;
-    salespersonMap.set(inv.salesperson, sp);
+    const val = individualActualMap.get(inv.salesperson) || 0;
+    individualActualMap.set(inv.salesperson, val + inv.netSalesValue);
   });
+
+  // Calculate individual budgets
+  const individualBudgetMap = new Map<string, number>();
   scopedBudgets.forEach((bud) => {
-    const sp = salespersonMap.get(bud.salesperson) || { name: bud.salesperson, region: "Unknown", actual: 0, budget: 0 };
-    sp.budget += bud.budgetValue;
-    salespersonMap.set(bud.salesperson, sp);
+    const val = individualBudgetMap.get(bud.salesperson) || 0;
+    individualBudgetMap.set(bud.salesperson, val + bud.budgetValue);
   });
 
   const salespersonRankings = Array.from(salespersonMap.values()).map((sp) => {
-    const gap = sp.actual - sp.budget;
+    // Lookup matching user profile to check for recursive descendants (hierarchy rollups)
+    const matchingUser = usersList.find(u => isFuzzyNameMatch(u.name, sp.name) || (u.email && u.email.toLowerCase() === sp.name.toLowerCase()));
+    
+    let totalActual = individualActualMap.get(sp.name) || 0;
+    let totalBudget = individualBudgetMap.get(sp.name) || 0;
+
+    if (matchingUser) {
+      const descendants = getUserDescendantsList(matchingUser, usersList);
+      if (descendants.length > 0) {
+        descendants.forEach(d => {
+          totalActual += individualActualMap.get(d.name) || 0;
+          totalBudget += individualBudgetMap.get(d.name) || 0;
+        });
+      }
+    }
+
+    const gap = totalActual - totalBudget;
     return {
       name: sp.name,
       region: sp.region,
-      currentActual: sp.actual,
-      budgetValue: sp.budget,
+      currentActual: totalActual,
+      budgetValue: totalBudget,
       gap,
-      achievement: sp.budget > 0 ? (sp.actual / sp.budget) * 100 : 0,
+      // If budget target is 0 but sales exist (or budget is 0 and sales are 0), they have achieved target (100%)
+      achievement: totalBudget > 0 ? (totalActual / totalBudget) * 100 : 100,
     };
   }).sort((a, b) => b.currentActual - a.currentActual);
 
@@ -553,6 +574,46 @@ export function compileAnalytics(
       valueLastYear: c.prevSales,
     }));
 
+  // 9. Product Monthly Comparisons (for deep date queries / comparisons)
+  const productMonthlyMap = new Map<string, { [monthKey: number]: { current: number; prev: number } }>();
+  scopedInvoices.forEach((inv) => {
+    if (!inv.invoiceDate) return;
+    const d = new Date(inv.invoiceDate);
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const pName = inv.productName;
+    if (!productMonthlyMap.has(pName)) {
+      productMonthlyMap.set(pName, {});
+    }
+    const monthObj = productMonthlyMap.get(pName)!;
+    if (!monthObj[m]) {
+      monthObj[m] = { current: 0, prev: 0 };
+    }
+    if (y === latestYear) {
+      monthObj[m].current += inv.netSalesValue;
+    } else if (y === prevYear) {
+      monthObj[m].prev += inv.netSalesValue;
+    }
+  });
+
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const productMonthlyComparisons: { productName: string; monthName: string; monthNum: number; currentSales: number; prevSales: number }[] = [];
+  productMonthlyMap.forEach((monthObj, productName) => {
+    Object.keys(monthObj).forEach((mStr) => {
+      const m = Number(mStr);
+      const val = monthObj[m];
+      if (val.current > 0 || val.prev > 0) {
+        productMonthlyComparisons.push({
+          productName,
+          monthName: monthNames[m],
+          monthNum: m,
+          currentSales: val.current,
+          prevSales: val.prev,
+        });
+      }
+    });
+  });
+
   return {
     currentYtdSales,
     prevYtdSales,
@@ -581,5 +642,6 @@ export function compileAnalytics(
     weakRegions,
     decliningSuppliers,
     salespersonsBelowBudget,
+    productMonthlyComparisons,
   };
 }

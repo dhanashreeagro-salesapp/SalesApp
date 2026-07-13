@@ -1813,6 +1813,7 @@ app.post("/api/gemini/insights", async (req, res) => {
     const decliningProductsVal = safeContext.decliningProductsVal || [];
     const newCustomers = safeContext.newCustomers || [];
     const lostCustomers = safeContext.lostCustomers || [];
+    const productMonthlyComparisons = safeContext.productMonthlyComparisons || [];
 
     // Prepare fallback mock response matching user prompt patterns
     const lastMsg = Array.isArray(messages) && messages.length > 0 ? messages[messages.length - 1]?.content || "" : "";
@@ -1836,6 +1837,29 @@ app.post("/api/gemini/insights", async (req, res) => {
         reply += `\nNo customer accounts in your hierarchy scope have dropped purchases by more than 15% or been lost this year.`;
       } else {
         reply += `\n` + lines.join("\n");
+      }
+    } else if (lower.includes("july") || lower.includes("june") || lower.includes("may") || lower.includes("monthly") || lower.includes("month") || lower.includes("compare")) {
+      let queryMonth = "July";
+      if (lower.includes("june")) queryMonth = "June";
+      else if (lower.includes("may")) queryMonth = "May";
+      else if (lower.includes("april")) queryMonth = "April";
+      else if (lower.includes("march")) queryMonth = "March";
+
+      const monthComparisons = productMonthlyComparisons.filter(
+        (p: any) => p.monthName.toLowerCase() === queryMonth.toLowerCase()
+      );
+
+      if (monthComparisons.length === 0) {
+        reply = `**AI Insights:** No product sales records found in your scoped hierarchy for the month of **${queryMonth}** in either the current year or last year.`;
+      } else {
+        reply = `**AI Insights:** Product sales comparison for **${queryMonth} 2026** vs **${queryMonth} 2025** (in Lakhs) under your hierarchy scope:`;
+        monthComparisons.forEach((p: any) => {
+          const cyVal = (p.currentSales / 100000).toFixed(2);
+          const lyVal = (p.prevSales / 100000).toFixed(2);
+          const diff = p.currentSales - p.prevSales;
+          const growth = p.prevSales > 0 ? ((diff / p.prevSales) * 100).toFixed(1) + "%" : "N/A";
+          reply += `\n- **${p.productName}**: ₹${cyVal}L (This Year) vs ₹${lyVal}L (Last Year) [YoY: ${diff >= 0 ? '+' : ''}${growth}]`;
+        });
       }
     } else if (lower.includes("declining") || lower.includes("product") || lower.includes("brand") || lower.includes("region") || lower.includes("underperform")) {
       reply = `**AI Insights:** Scoped performance warning indicators for your territories:`;
@@ -1889,8 +1913,9 @@ Operational Context provided by server:
 - Declining Products: ${JSON.stringify(decliningProductsVal)}
 - New Dealers: ${JSON.stringify(newCustomers)}
 - Lost Dealers: ${JSON.stringify(lostCustomers)}
+- Product Monthly Sales Comparisons: ${JSON.stringify(productMonthlyComparisons)}
 
-Provide detailed, humanized, extremely professional and highly precise reports. Only reference salesperson names, regions, and values present in the Operational Context above. Do NOT mention any other regions or salesperson names that are not in the context. Keep formatting clear with sub-headers.`;
+Provide detailed, humanized, extremely professional and highly precise reports. Only reference salesperson names, regions, values, and products present in the Operational Context above. Do NOT mention any other regions or salesperson names that are not in the context. Keep formatting clear with sub-headers.`;
 
     // Sanitize message history to comply with Gemini API safety expectations:
     // 1. Alternating user/model roles.
@@ -1972,6 +1997,7 @@ Provide detailed, humanized, extremely professional and highly precise reports. 
     const decliningProductsVal = safeContext.decliningProductsVal || [];
     const newCustomers = safeContext.newCustomers || [];
     const lostCustomers = safeContext.lostCustomers || [];
+    const productMonthlyComparisons = safeContext.productMonthlyComparisons || [];
 
     let fallbackReply = "";
     if (lower.includes("customer") && (lower.includes("25%") || lower.includes("drop") || lower.includes("reduced") || lower.includes("lost"))) {
@@ -1991,6 +2017,29 @@ Provide detailed, humanized, extremely professional and highly precise reports. 
         fallbackReply += `\nNo customer accounts in your hierarchy scope have dropped purchases by more than 15% or been lost this year.`;
       } else {
         fallbackReply += `\n` + lines.join("\n");
+      }
+    } else if (lower.includes("july") || lower.includes("june") || lower.includes("may") || lower.includes("monthly") || lower.includes("month") || lower.includes("compare")) {
+      let queryMonth = "July";
+      if (lower.includes("june")) queryMonth = "June";
+      else if (lower.includes("may")) queryMonth = "May";
+      else if (lower.includes("april")) queryMonth = "April";
+      else if (lower.includes("march")) queryMonth = "March";
+
+      const monthComparisons = productMonthlyComparisons.filter(
+        (p: any) => p.monthName.toLowerCase() === queryMonth.toLowerCase()
+      );
+
+      if (monthComparisons.length === 0) {
+        fallbackReply = `**AI Insights:** No product sales records found in your scoped hierarchy for the month of **${queryMonth}** in either the current year or last year.`;
+      } else {
+        fallbackReply = `**AI Insights:** Product sales comparison for **${queryMonth} 2026** vs **${queryMonth} 2025** (in Lakhs) under your hierarchy scope:`;
+        monthComparisons.forEach((p: any) => {
+          const cyVal = (p.currentSales / 100000).toFixed(2);
+          const lyVal = (p.prevSales / 100000).toFixed(2);
+          const diff = p.currentSales - p.prevSales;
+          const growth = p.prevSales > 0 ? ((diff / p.prevSales) * 100).toFixed(1) + "%" : "N/A";
+          fallbackReply += `\n- **${p.productName}**: ₹${cyVal}L (This Year) vs ₹${lyVal}L (Last Year) [YoY: ${diff >= 0 ? '+' : ''}${growth}]`;
+        });
       }
     } else if (lower.includes("declining") || lower.includes("product") || lower.includes("brand") || lower.includes("region") || lower.includes("underperform")) {
       fallbackReply = `**AI Insights:** Scoped performance warning indicators for your territories:`;

@@ -66,6 +66,7 @@ Ask me any deep strategic or tactical queries, such as:
             decliningProductsVal: analytics.decliningProductsVal,
             newCustomers: analytics.newCustomers,
             lostCustomers: analytics.lostCustomers,
+            productMonthlyComparisons: analytics.productMonthlyComparisons,
           }
         })
       });
