@@ -52,6 +52,11 @@ Ask me any deep strategic or tactical queries, such as:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: updatedMessages,
+          currentUser: {
+            name: currentUser.name,
+            role: currentUser.role,
+            email: currentUser.email
+          },
           contextData: {
             totalCurrentSales: analytics.currentYtdSales,
             growthPercent: analytics.growthPercent,

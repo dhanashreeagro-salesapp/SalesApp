@@ -1796,28 +1796,77 @@ app.post("/api/admin/align-orphans", async (req, res) => {
 // 3. AI Smart Insights Chat proxy using recommended model gemini-2.5-flash
 app.post("/api/gemini/insights", async (req, res) => {
   try {
-    const { messages = [], contextData = {} } = req.body || {};
+    const { messages = [], currentUser = {}, contextData = {} } = req.body || {};
     
+    const userRole = currentUser.role || "Salesperson";
+    const userName = currentUser.name || "Representative";
+
+    // Safely extract context data with defaults to prevent nested TypeErrors
+    const safeContext = contextData || {};
+    const totalCurrentSalesVal = safeContext.totalCurrentSales ? Number(safeContext.totalCurrentSales) : 0;
+    const totalCurrentSales = (totalCurrentSalesVal / 100000).toFixed(2);
+    const growthPercentVal = safeContext.growthPercent ? Number(safeContext.growthPercent) : 0;
+    const growthPercent = growthPercentVal.toFixed(1);
+    const regions = safeContext.regions || [];
+    const droppedCustomers = safeContext.droppedCustomers || [];
+    const salespersons = safeContext.salespersons || [];
+    const decliningProductsVal = safeContext.decliningProductsVal || [];
+    const newCustomers = safeContext.newCustomers || [];
+    const lostCustomers = safeContext.lostCustomers || [];
+
     // Prepare fallback mock response matching user prompt patterns
     const lastMsg = Array.isArray(messages) && messages.length > 0 ? messages[messages.length - 1]?.content || "" : "";
     const lower = lastMsg.toLowerCase();
     let reply = "";
-    if (lower.includes("customer") && lower.includes("25%")) {
-      reply = `**AI Insights:** Based on YTD comparison (1 Mar 2026 - 26 May 2026 vs last year):
-- **Krishna Agro Agency Nashik** dropped by **100%** (Value ₹1,08,000 last year to ₹0 this year - Classified as *Lost Customer*).
-- **Cauvery Fertilizers Salem** (under S. Gopal in South) decreased from ₹1,30,005 to ₹1,23,000 (A slight decline of **5.4%**).
-- **Jai Malhar Seeds** grew strongly by **44.4%** matching excellent soil biostimulant penetration in cane fields!`;
-    } else if (lower.includes("maharashtra") || lower.includes("declining") || lower.includes("region") || lower.includes("west")) {
-      reply = `**AI Insights:** In Maharashtra (West Region supervised by RM S. R. Patil):
-- **Urea Premium Shaktiman** (handled by salesperson V. R. Sharma) registered a tiny decline in Satara territory from ₹2.91L to ₹2.86L.
-- However, our premium category **Biostimulants** grew strongly! **SugaMax Bio Enhancer** increased from ₹42k to ₹57k (up 34%).
-- A brand new customer **Navnath Seeds & Fert Baramati** was successfully added under V. R. Sharma contributing ₹55,000 in sales.`;
+
+    if (lower.includes("customer") && (lower.includes("25%") || lower.includes("drop") || lower.includes("reduced") || lower.includes("lost"))) {
+      reply = `**AI Insights:** Based on YTD comparison for your scoped client portfolio:`;
+      let lines: string[] = [];
+      if (droppedCustomers.length > 0) {
+        droppedCustomers.forEach((c: any) => {
+          lines.push(`- **${c.customer}** dropped by **${Number(c.dropPercent).toFixed(1)}%** (Value ₹${(c.prev/100000).toFixed(2)}L last year to ₹${(c.current/100000).toFixed(2)}L this year).`);
+        });
+      }
+      if (lostCustomers.length > 0) {
+        lostCustomers.forEach((c: any) => {
+          lines.push(`- **${c.customer}** (Value ₹${(c.valueLastYear/100000).toFixed(2)}L last year to ₹0 this year - Classified as *Lost Customer*).`);
+        });
+      }
+      if (lines.length === 0) {
+        reply += `\nNo customer accounts in your hierarchy scope have dropped purchases by more than 15% or been lost this year.`;
+      } else {
+        reply += `\n` + lines.join("\n");
+      }
+    } else if (lower.includes("declining") || lower.includes("product") || lower.includes("brand") || lower.includes("region") || lower.includes("underperform")) {
+      reply = `**AI Insights:** Scoped performance warning indicators for your territories:`;
+      let lines: string[] = [];
+      if (decliningProductsVal.length > 0) {
+        decliningProductsVal.slice(0, 3).forEach((p: any) => {
+          lines.push(`- **${p.product}** registered a YTD value decline of **${Number(p.dropValPercent).toFixed(1)}%** (from ₹${(p.prevVal/100000).toFixed(2)}L last year to ₹${(p.currVal/100000).toFixed(2)}L this year).`);
+        });
+      }
+      if (regions.length > 0) {
+        const weak = regions.filter((r: any) => Number(r.growthPercent) < 5);
+        weak.forEach((r: any) => {
+          lines.push(`- Scoped region/territory **${r.region || "Territory"}** shows underperformance with YoY YTD growth at **${Number(r.growthPercent).toFixed(1)}%**.`);
+        });
+      }
+      if (lines.length === 0) {
+        reply += `\nNo product categories or territories show significant decline or growth below 5% in your hierarchy scope.`;
+      } else {
+        reply += `\n` + lines.join("\n");
+      }
     } else {
-      reply = `**AgroSales IQ Business Advisory Summary:**
-- **Overall YTD Growth:** Sales expanded to ₹45.8 Lakhs representing a strong pre-monsoon rise (+11.7% Year-on-Year).
-- **Region Highlights:** South Region is the largest contributor (₹12.8L DAP fertilizers advance order is our biggest growth catalyst).
-- **RM Supervision:** S. R. Patil's team in West is outperforming targets with **93%** budget alignment.
-- *AI Recommendation:* Re-allocate biostimulants incentive structures to Western sugarcane clusters to harness immediate soil nutrient demands before monsoon break.`;
+      reply = `**AgroSales IQ Business Advisory Summary for ${userName} (${userRole}):**
+- **Overall Scoped YTD Sales:** Sales in your hierarchy are ₹${totalCurrentSales} Lakhs representing a YoY YTD growth of ${growthPercent}%.`;
+      if (regions.length > 0) {
+        reply += `\n- **Region/Territory Performance:** ${regions.map((r: any) => `${r.region || 'Territory'}: ₹${(r.currentSales/100000).toFixed(2)}L (${r.growthPercent >= 0 ? '+' : ''}${Number(r.growthPercent).toFixed(1)}% YoY)`).join(', ')}.`;
+      }
+      if (salespersons.length > 0) {
+        const sortedSp = [...salespersons].sort((a: any, b: any) => Number(a.achievement) - Number(b.achievement));
+        const lowest = sortedSp[0];
+        reply += `\n- **Salesperson Achievement:** Lowest target achievement in your scope is salesperson **${lowest.name}** at **${Number(lowest.achievement).toFixed(1)}%** (Actual ₹${(lowest.currentActual/100000).toFixed(2)}L vs Target ₹${(lowest.budgetValue/100000).toFixed(2)}L).`;
+      }
     }
 
     const hasApiKey = !(!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.trim() === "" || process.env.GEMINI_API_KEY.startsWith("YOUR_"));
@@ -1827,32 +1876,21 @@ app.post("/api/gemini/insights", async (req, res) => {
     }
 
     const ai = getGeminiClient();
-    
-    // Safely extract context data with defaults to prevent nested TypeErrors
-    const safeContext = contextData || {};
-    const totalCurrentSales = safeContext.totalCurrentSales ? (safeContext.totalCurrentSales / 100000).toFixed(2) : "45.00";
-    const growthPercent = safeContext.growthPercent ? safeContext.growthPercent.toFixed(1) : "11.7";
-    const regions = safeContext.regions || [];
-    const droppedCustomers = safeContext.droppedCustomers || [];
-    const salespersons = safeContext.salespersons || [];
-    const decliningProductsVal = safeContext.decliningProductsVal || [];
-    const newCustomers = safeContext.newCustomers || [];
-    const lostCustomers = safeContext.lostCustomers || [];
 
     // Build highly rich system context
-    const systemPrompt = `You are an expert Agro-inputs Enterprise Sales Director AI Assistant.
+    const systemPrompt = `You are an expert Agro-inputs Enterprise ${userRole} AI Assistant helping ${userRole} ${userName}.
 You have access to the active operational metrics for "AgroSales IQ" compiled dynamically from CRM receipts and salesperson Excel budgets over two financial years starting on March 1st.
 Operational Context provided by server:
 - Total Current YTD Sales: ₹${totalCurrentSales} Lakhs
 - YTD Year-on-Year Growth: ${growthPercent}%
-- Region Performances: ${JSON.stringify(regions)}
+- Region/Territory Performances: ${JSON.stringify(regions)}
 - Alerted dropped customers (>15% fall): ${JSON.stringify(droppedCustomers)}
-- Salesperson current achievements: ${JSON.stringify(salespersons)}
+- Salesperson current achievements under your hierarchy: ${JSON.stringify(salespersons)}
 - Declining Products: ${JSON.stringify(decliningProductsVal)}
 - New Dealers: ${JSON.stringify(newCustomers)}
 - Lost Dealers: ${JSON.stringify(lostCustomers)}
 
-Provide detailed, humanized, extremely professional and highly precise enterprise reports. Mention the actual rupee values, regional supervisors, salesperson names (e.g. S. R. Patil, V. R. Sharma), and products. Keep formatting clear with sub-headers.`;
+Provide detailed, humanized, extremely professional and highly precise reports. Only reference salesperson names, regions, and values present in the Operational Context above. Do NOT mention any other regions or salesperson names that are not in the context. Keep formatting clear with sub-headers.`;
 
     // Sanitize message history to comply with Gemini API safety expectations:
     // 1. Alternating user/model roles.
@@ -1917,26 +1955,73 @@ Provide detailed, humanized, extremely professional and highly precise enterpris
   } catch (error: any) {
     console.error("Gemini API call failed, using mock advisor fallback response. Error:", error);
     // Graceful fallback response including a subtle fallback suffix to always keep user experience green
-    const messages = req.body?.messages || [];
+    const { messages = [], currentUser = {}, contextData = {} } = req.body || {};
     const lastMsg = Array.isArray(messages) && messages.length > 0 ? messages[messages.length - 1]?.content || "" : "";
     const lower = lastMsg.toLowerCase();
-    
-    let fallbackReply = `**AgroSales IQ Business Advisory Summary:**
-- **Overall YTD Growth:** Sales expanded to ₹45.8 Lakhs representing a strong pre-monsoon rise (+11.7% Year-on-Year).
-- **Region Highlights:** South Region is the largest contributor (₹12.8L DAP fertilizers advance order is our biggest growth catalyst).
-- **RM Supervision:** S. R. Patil's team in West is outperforming targets with **93%** budget alignment.
-- *AI Recommendation:* Re-allocate biostimulants incentive structures to Western sugarcane clusters to harness immediate soil nutrient demands before monsoon break.`;
+    const userRole = currentUser.role || "Salesperson";
+    const userName = currentUser.name || "Representative";
 
-    if (lower.includes("customer") && lower.includes("25%")) {
-      fallbackReply = `**AI Insights:** Based on YTD comparison (1 Mar 2026 - 26 May 2026 vs last year):
-- **Krishna Agro Agency Nashik** dropped by **100%** (Value ₹1,08,000 last year to ₹0 this year - Classified as *Lost Customer*).
-- **Cauvery Fertilizers Salem** (under S. Gopal in South) decreased from ₹1,30,005 to ₹1,23,000 (A slight decline of **5.4%**).
-- **Jai Malhar Seeds** grew strongly by **44.4%** matching excellent soil biostimulant penetration in cane fields!`;
-    } else if (lower.includes("maharashtra") || lower.includes("declining") || lower.includes("region") || lower.includes("west")) {
-      fallbackReply = `**AI Insights:** In Maharashtra (West Region supervised by RM S. R. Patil):
-- **Urea Premium Shaktiman** (handled by salesperson V. R. Sharma) registered a tiny decline in Satara territory from ₹2.91L to ₹2.86L.
-- However, our premium category **Biostimulants** grew strongly! **SugaMax Bio Enhancer** increased from ₹42k to ₹57k (up 34%).
-- A brand new customer **Navnath Seeds & Fert Baramati** was successfully added under V. R. Sharma contributing ₹55,000 in sales.`;
+    const safeContext = contextData || {};
+    const totalCurrentSalesVal = safeContext.totalCurrentSales ? Number(safeContext.totalCurrentSales) : 0;
+    const totalCurrentSales = (totalCurrentSalesVal / 100000).toFixed(2);
+    const growthPercentVal = safeContext.growthPercent ? Number(safeContext.growthPercent) : 0;
+    const growthPercent = growthPercentVal.toFixed(1);
+    const regions = safeContext.regions || [];
+    const droppedCustomers = safeContext.droppedCustomers || [];
+    const salespersons = safeContext.salespersons || [];
+    const decliningProductsVal = safeContext.decliningProductsVal || [];
+    const newCustomers = safeContext.newCustomers || [];
+    const lostCustomers = safeContext.lostCustomers || [];
+
+    let fallbackReply = "";
+    if (lower.includes("customer") && (lower.includes("25%") || lower.includes("drop") || lower.includes("reduced") || lower.includes("lost"))) {
+      fallbackReply = `**AI Insights:** Based on YTD comparison for your scoped client portfolio:`;
+      let lines: string[] = [];
+      if (droppedCustomers.length > 0) {
+        droppedCustomers.forEach((c: any) => {
+          lines.push(`- **${c.customer}** dropped by **${Number(c.dropPercent).toFixed(1)}%** (Value ₹${(c.prev/100000).toFixed(2)}L last year to ₹${(c.current/100000).toFixed(2)}L this year).`);
+        });
+      }
+      if (lostCustomers.length > 0) {
+        lostCustomers.forEach((c: any) => {
+          lines.push(`- **${c.customer}** (Value ₹${(c.valueLastYear/100000).toFixed(2)}L last year to ₹0 this year - Classified as *Lost Customer*).`);
+        });
+      }
+      if (lines.length === 0) {
+        fallbackReply += `\nNo customer accounts in your hierarchy scope have dropped purchases by more than 15% or been lost this year.`;
+      } else {
+        fallbackReply += `\n` + lines.join("\n");
+      }
+    } else if (lower.includes("declining") || lower.includes("product") || lower.includes("brand") || lower.includes("region") || lower.includes("underperform")) {
+      fallbackReply = `**AI Insights:** Scoped performance warning indicators for your territories:`;
+      let lines: string[] = [];
+      if (decliningProductsVal.length > 0) {
+        decliningProductsVal.slice(0, 3).forEach((p: any) => {
+          lines.push(`- **${p.product}** registered a YTD value decline of **${Number(p.dropValPercent).toFixed(1)}%** (from ₹${(p.prevVal/100000).toFixed(2)}L last year to ₹${(p.currVal/100000).toFixed(2)}L this year).`);
+        });
+      }
+      if (regions.length > 0) {
+        const weak = regions.filter((r: any) => Number(r.growthPercent) < 5);
+        weak.forEach((r: any) => {
+          lines.push(`- Scoped region/territory **${r.region || "Territory"}** shows underperformance with YoY YTD growth at **${Number(r.growthPercent).toFixed(1)}%**.`);
+        });
+      }
+      if (lines.length === 0) {
+        fallbackReply += `\nNo product categories or territories show significant decline or growth below 5% in your hierarchy scope.`;
+      } else {
+        fallbackReply += `\n` + lines.join("\n");
+      }
+    } else {
+      fallbackReply = `**AgroSales IQ Business Advisory Summary for ${userName} (${userRole}):**
+- **Overall Scoped YTD Sales:** Sales in your hierarchy are ₹${totalCurrentSales} Lakhs representing a YoY YTD growth of ${growthPercent}%.`;
+      if (regions.length > 0) {
+        fallbackReply += `\n- **Region/Territory Performance:** ${regions.map((r: any) => `${r.region || 'Territory'}: ₹${(r.currentSales/100000).toFixed(2)}L (${r.growthPercent >= 0 ? '+' : ''}${Number(r.growthPercent).toFixed(1)}% YoY)`).join(', ')}.`;
+      }
+      if (salespersons.length > 0) {
+        const sortedSp = [...salespersons].sort((a: any, b: any) => Number(a.achievement) - Number(b.achievement));
+        const lowest = sortedSp[0];
+        fallbackReply += `\n- **Salesperson Achievement:** Lowest target achievement in your scope is salesperson **${lowest.name}** at **${Number(lowest.achievement).toFixed(1)}%** (Actual ₹${(lowest.currentActual/100000).toFixed(2)}L vs Target ₹${(lowest.budgetValue/100000).toFixed(2)}L).`;
+      }
     }
 
     return res.json({
