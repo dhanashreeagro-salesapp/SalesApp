@@ -129,33 +129,28 @@ export default function ExecutiveDashboard({
 
   // Helper to compute dynamic dates boundaries
   const getInitialDates = () => {
-    const datesObj = (scopedInvoices || [])
+    const dates = (scopedInvoices || [])
       .map(inv => inv.invoiceDate)
-      .filter(Boolean)
-      .map(dStr => new Date(dStr))
-      .filter(d => !isNaN(d.getTime()));
+      .filter(Boolean);
 
     let lastDateStr = "2026-05-12";
-    if (datesObj.length > 0) {
-      const lastDate = new Date(Math.max(...datesObj.map(d => d.getTime())));
-      const y = lastDate.getFullYear();
-      const m = String(lastDate.getMonth() + 1).padStart(2, "0");
-      const d = String(lastDate.getDate()).padStart(2, "0");
-      lastDateStr = `${y}-${m}-${d}`;
+    if (dates.length > 0) {
+      // Find the lexicographically maximum date string
+      lastDateStr = dates.reduce((max, d) => d > max ? d : max, dates[0]);
     }
 
-    const lastDate = new Date(lastDateStr);
-    const monthIdx = lastDate.getMonth();
-    const fyStartYear = monthIdx >= 2 ? lastDate.getFullYear() : lastDate.getFullYear() - 1;
+    const parts = lastDateStr.split("-");
+    const year = Number(parts[0]);
+    const monthIdx = Number(parts[1]) - 1; // 0-indexed month
+
+    const fyStartYear = monthIdx >= 2 ? year : year - 1;
     const fyStartStr = `${fyStartYear}-03-01`;
 
     const p1StartYear = fyStartYear - 1;
     const p1StartStr = `${p1StartYear}-03-01`;
 
-    const p1EndYear = lastDate.getFullYear() - 1;
-    const p1EndMonth = String(lastDate.getMonth() + 1).padStart(2, "0");
-    const p1EndDate = String(lastDate.getDate()).padStart(2, "0");
-    const p1EndStr = `${p1EndYear}-${p1EndMonth}-${p1EndDate}`;
+    const p1EndYear = year - 1;
+    const p1EndStr = `${p1EndYear}-${parts[1]}-${parts[2]}`;
 
     return {
       p1Start: p1StartStr,
@@ -182,17 +177,6 @@ export default function ExecutiveDashboard({
     const myIdNorm = (currentUser.id || "").trim().toLowerCase();
 
     (scopedInvoices || []).forEach(inv => {
-      // For Regional Manager, only show their DIRECTLY assigned customer accounts (not of their subordinates)
-      if (currentUser.role === "Regional Manager") {
-        const invSp = inv.salesperson || "";
-        const invRm = inv.regionalManager || "";
-        const isDirectToRM = (
-          (myName && (isFuzzyNameMatch(myName, invSp) || isFuzzyNameMatch(myName, invRm))) ||
-          (myEmailNorm && (invSp.toLowerCase() === myEmailNorm || invRm.toLowerCase() === myEmailNorm)) ||
-          (myIdNorm && (invSp.toLowerCase() === myIdNorm || invRm.toLowerCase() === myIdNorm))
-        );
-        if (!isDirectToRM) return;
-      }
 
       if (inv.customerName) {
         const code = inv.customerCode || "N/A";
@@ -209,10 +193,20 @@ export default function ExecutiveDashboard({
         customersMap.set(key, existing);
       }
     });
-    return Array.from(customersMap.values())
-      .filter(cust => cust.cyAmt > 0 || cust.lyAmt > 0)
-      .sort((a, b) => b.cyAmt - a.cyAmt);
-  }, [scopedInvoices, currentUser, period1Start, period1End, period2Start, period2End]);
+
+    const list = Array.from(customersMap.values())
+      .filter(cust => cust.cyAmt > 0 || cust.lyAmt > 0);
+
+    // Apply Search Filter on customer portfolio (space-insensitive and fuzzy-friendly)
+    const filteredList = list.filter(cust => {
+      if (!searchQuery || searchQuery.trim() === "") return true;
+      const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const q = clean(searchQuery);
+      return clean(cust.name).includes(q) || clean(cust.code).includes(q);
+    });
+
+    return filteredList.sort((a, b) => b.cyAmt - a.cyAmt);
+  }, [scopedInvoices, currentUser, period1Start, period1End, period2Start, period2End, searchQuery]);
 
   // Real-time custom regional manager subordinate listing
   const mySubordinates = React.useMemo(() => {
@@ -336,7 +330,7 @@ export default function ExecutiveDashboard({
 
   // Rankings lists view expansions states
   // Sub-tabs navigation state & inside-tab sub-view filter selections
-   const [activeSubTab, setActiveSubTab] = useState<"dashboard" | "commandDesk" | "product" | "customer" | "supplier" | "lost" | "yoy" | "budgetVsActual">("dashboard");
+   const [activeSubTab, setActiveSubTab] = useState<"dashboard" | "product" | "customer" | "supplier" | "lost" | "yoy" | "budgetVsActual">("dashboard");
   const [productSubView, setProductSubView] = useState<"all" | "top20qty" | "bottom20qty" | "topValue" | "nonBilling">("all");
   const [customerSubView, setCustomerSubView] = useState<"all" | "topQty" | "topValue" | "bottom20" | "regionBreakdown">("all");
 
@@ -453,10 +447,12 @@ export default function ExecutiveDashboard({
       }
       if (selectedCategory !== "All" && inv.productCategory !== selectedCategory) return false;
       if (searchQuery.trim() !== "") {
-        const q = searchQuery.toLowerCase();
-        if (!inv.customerName.toLowerCase().includes(q) &&
-            !inv.customerCode.toLowerCase().includes(q) &&
-            !inv.productName.toLowerCase().includes(q)) {
+        const clean = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const q = clean(searchQuery);
+        const nameMatch = clean(inv.customerName).includes(q);
+        const codeMatch = clean(inv.customerCode).includes(q);
+        const prodMatch = clean(inv.productName).includes(q);
+        if (!nameMatch && !codeMatch && !prodMatch) {
           return false;
         }
       }
@@ -565,8 +561,13 @@ export default function ExecutiveDashboard({
     const fiscalMonths = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1];
     
     // Determine the latest month in our actual period2 (YTD)
-    const upToDate = period2End ? new Date(period2End) : new Date();
-    const upToMonth = !isNaN(upToDate.getTime()) ? upToDate.getMonth() : 4; // fallback to May (4)
+    let upToMonth = 4; // fallback to May
+    if (period2End) {
+      const parts = period2End.split("-");
+      if (parts.length >= 2) {
+        upToMonth = Number(parts[1]) - 1; // 0-indexed month
+      }
+    }
     const upToIdx = fiscalMonths.indexOf(upToMonth);
     const ytdMonths = upToIdx !== -1 ? fiscalMonths.slice(0, upToIdx + 1) : [2, 3, 4];
 
@@ -575,11 +576,19 @@ export default function ExecutiveDashboard({
       const label = m === upToMonth ? `${monthName} (YTD)` : monthName;
       
       const currentSales = p2Records
-        .filter(r => r.invoiceDate && new Date(r.invoiceDate).getMonth() === m)
+        .filter(r => {
+          if (!r.invoiceDate) return false;
+          const parts = r.invoiceDate.split("-");
+          return parts.length >= 2 && (Number(parts[1]) - 1) === m;
+        })
         .reduce((sum, r) => sum + r.netSalesValue, 0);
         
       const prevSales = p1Records
-        .filter(r => r.invoiceDate && new Date(r.invoiceDate).getMonth() === m)
+        .filter(r => {
+          if (!r.invoiceDate) return false;
+          const parts = r.invoiceDate.split("-");
+          return parts.length >= 2 && (Number(parts[1]) - 1) === m;
+        })
         .reduce((sum, r) => sum + r.netSalesValue, 0);
         
       return {
@@ -778,7 +787,6 @@ export default function ExecutiveDashboard({
   const tabsList = React.useMemo(() => {
     const list = [
       { id: "dashboard", label: "Dashboard", desc: "Executive KPI Hub" },
-      { id: "commandDesk", label: "My Sales Desk", desc: "Portfolio & Hierarchy" },
       { id: "product", label: "Product Comparative", desc: "SKU Volume Standings" },
       { id: "customer", label: "Customer Standings", desc: "Dealer Accounts" },
       { id: "supplier", label: "Suppliers Performance", desc: "Vendor Analysis" },
@@ -1432,146 +1440,7 @@ export default function ExecutiveDashboard({
             regionStats={regionStats} 
           />
         )}
-        {activeSubTab === "commandDesk" && (
-          <div className="space-y-6">
-            
-            {/* 👤 Salesperson & Regional Manager direct customer assignments table */}
-            {(currentUser.role === "Salesperson" || (currentUser.role === "Regional Manager" && assignedCustomers.length > 0)) && (
-              <div className="bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-200 rounded-2xl p-5 shadow-xs text-left">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-teal-150 pb-4 mb-4">
-                  <div className="flex items-start gap-3">
-                    <div className="bg-teal-600 text-white p-2 rounded-xl">
-                      <Users className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[9px] uppercase font-bold tracking-widest text-teal-700 block">Registered Sales Desk Info</span>
-                      <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                        <span>👤 My Assigned Customer Portfolio</span>
-                        <span className="bg-teal-100 text-teal-800 text-[10px] px-2.5 py-0.5 rounded-full font-mono font-bold">
-                          {assignedCustomers.length} Assigned Accounts
-                        </span>
-                      </h2>
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-                        Scope: <span className="font-semibold text-slate-700">{currentUser.role === "Salesperson" ? `Sub Group (Territory) - ${currentUser.territory || "Unassigned"}` : "Direct Accounts Portfolio"}</span> | Supervisor RM: <span className="font-semibold text-slate-700">{currentUser.managerName || "None"}</span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
 
-                <div className="max-h-120 overflow-y-auto rounded-xl border border-teal-150 bg-white">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead className="bg-teal-50/50 text-slate-600 font-bold border-b border-teal-100 uppercase tracking-wider text-[9px] sticky top-0 bg-white">
-                      <tr>
-                        <th className="p-3">Customer Acc Name</th>
-                        <th className="p-3 text-right">CY Sales (Lakhs)</th>
-                        <th className="p-3 text-right">LY Sales (Lakhs)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-slate-700">
-                      {assignedCustomers.length > 0 ? (
-                        assignedCustomers.map((cust, itemIdx) => (
-                          <tr key={itemIdx} className="hover:bg-slate-50 font-medium">
-                            <td className="p-3 font-semibold text-slate-900">{cust.name}</td>
-                            <td className="p-3 text-right text-teal-700 font-semibold font-mono">₹{(cust.cyAmt / 100000).toFixed(2)} L</td>
-                            <td className="p-3 text-right text-slate-500 font-mono">₹{(cust.lyAmt / 100000).toFixed(2)} L</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={3} className="p-6 text-center text-slate-400 italic">No customer invoice receipts found matching your salesperson name in the active database.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                    {assignedCustomers.length > 0 && (
-                      <tfoot className="bg-teal-50/90 backdrop-blur-xs font-bold border-t border-teal-200 text-slate-900 text-[11px] sticky bottom-0">
-                        <tr>
-                          <td className="p-3 font-bold text-teal-900">Total Portfolio</td>
-                          <td className="p-3 text-right text-teal-800 font-extrabold font-mono">₹{(assignedCustomers.reduce((sum, c) => sum + c.cyAmt, 0) / 100000).toFixed(2)} L</td>
-                          <td className="p-3 text-right text-slate-750 font-extrabold font-mono">₹{(assignedCustomers.reduce((sum, c) => sum + c.lyAmt, 0) / 100000).toFixed(2)} L</td>
-                        </tr>
-                      </tfoot>
-                    )}
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* 🌳 Reporting Sales Team Hierarchy Block */}
-            {(currentUser.role === "Regional Manager" || currentUser.role === "Sales Director" || subordinateHierarchy.length > 0) && (
-              <div className="bg-gradient-to-r from-blue-50/70 to-indigo-50/50 border border-blue-200 rounded-2xl p-5 shadow-xs text-left">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-blue-150 pb-4 mb-4">
-                  <div className="flex items-start gap-3">
-                    <div className="bg-blue-600 text-white p-2 rounded-xl">
-                      <Briefcase className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[9px] uppercase font-bold tracking-widest text-blue-700 block">Regional Command Desk Info</span>
-                      <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                        <span>🌳 My Reporting Salesperson & Client Hierarchy</span>
-                        <span className="bg-blue-100 text-blue-800 text-[10px] px-2.5 py-0.5 rounded-full font-mono font-bold">
-                          {subordinateHierarchy.length} Reporting Agents
-                        </span>
-                      </h2>
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-                        Operating Region: <span className="font-semibold text-slate-700">{currentUser.region || "Unassigned"}</span> | Role Position: <span className="font-semibold text-slate-700">Reporting Regional Overseer</span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {subordinateHierarchy.length > 0 ? (
-                    subordinateHierarchy.map((sub, spIdx) => {
-                      const subTotalCySales = sub.customers.reduce((sum, c) => sum + c.cySales, 0);
-                      return (
-                        <div key={spIdx} className="bg-white rounded-xl border border-blue-100 p-4 space-y-3.5 shadow-2xs">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                                <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                                {sub.subordinate.name}
-                              </h4>
-                              <p className="text-[10px] text-slate-500 font-medium">{sub.subordinate.email}</p>
-                              <span className="inline-block bg-blue-50 text-blue-700 text-[9px] font-bold px-2 py-0.5 rounded-md mt-1.5 border border-blue-150">
-                                CY Sales: ₹{(subTotalCySales / 100000).toFixed(2)} L
-                              </span>
-                            </div>
-                            <span className="bg-blue-50 text-blue-800 text-[9px] font-bold px-2 py-0.5 rounded-md font-mono shrink-0">
-                              {sub.subordinate.role === "Regional Manager" ? "Regional Manager" : (sub.subordinate.territory || "No Territory")}
-                            </span>
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">Assigned Dealer Accounts ({sub.customers.length})</span>
-                            <div className="bg-slate-50/50 rounded-lg p-2.5 max-h-40 overflow-y-auto border border-slate-100 divide-y divide-slate-100">
-                              {sub.customers.length > 0 ? (
-                                sub.customers.map((cust, cIdx) => (
-                                  <div key={cIdx} className="flex items-center justify-between text-[11px] py-1.5 font-medium">
-                                    <div className="truncate pr-2">
-                                      <p className="text-slate-800 font-semibold truncate leading-tight" title={cust.name}>{cust.name}</p>
-                                    </div>
-                                    <span className="text-blue-700 font-bold font-mono text-[10px] shrink-0">₹{(cust.cySales/100000).toFixed(2)} L</span>
-                                  </div>
-                                ))
-                              ) : (
-                                <p className="text-[10px] text-slate-400 italic py-2 text-center">No customer invoices in scope.</p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="col-span-full p-8 text-center text-slate-400 italic border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
-                      No active salesperson accounts report to {currentUser.name} (checked via database supervisor chains and fuzzy matching of salesperson names in regional invoice records).
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-          </div>
-        )}
         {activeSubTab === "product" && (
           <ProductComparativeTab productStats={productStats} p1Records={p1Records} p2Records={p2Records} />
         )}

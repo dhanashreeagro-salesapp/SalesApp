@@ -34,8 +34,147 @@ let localBudgets: any[] = [];
 let localAuditLogs: any[] = [];
 let localEmailLogs: any[] = [];
 let localUsers: any[] = [];
+let localCustomers: any[] = [];
+let localAssignments: any[] = [];
+let localAssignmentAuditLogs: any[] = [];
 let backupInvoices: any[] | null = null;
 let backupBudgets: any[] | null = null;
+
+function autoGenerateCustomerAssignmentsMaster(invoicesList: any[], usersList: any[]) {
+  const customersMap = new Map<string, any>();
+  const assignmentsList: any[] = [];
+  const cleanStr = (s: string) => (s || "").trim();
+
+  invoicesList.forEach(inv => {
+    const cName = cleanStr(inv.customerName || inv.customer_name);
+    if (!cName) return;
+
+    if (!customersMap.has(cName)) {
+      const cId = `cust_${cName.toLowerCase().replace(/[^a-z0-9]/g, "") || Math.floor(Math.random() * 100000)}`;
+      customersMap.set(cName, {
+        id: cId,
+        customer_name: cName,
+        contact_person: "",
+        contact_number: "",
+        email: "",
+        address: "",
+        city: "",
+        state: inv.region || "",
+        pin_code: "",
+        gst_number: inv.customerCode || inv.customer_code || "",
+        pan_number: "",
+        status: "Active",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+      const spNameNorm = cleanStr(inv.salesperson).toLowerCase();
+      const matchedUser = usersList.find(u => u.name && u.name.toLowerCase().trim() === spNameNorm);
+      const userId = matchedUser ? matchedUser.id : (usersList[0]?.id || "user_admin");
+
+      assignmentsList.push({
+        id: `assign_${cId}_${userId}`,
+        customer_id: cId,
+        user_id: userId,
+        allocation_percentage: 100,
+        effective_from: new Date().toISOString().split("T")[0],
+        effective_to: null,
+        is_active: true,
+        created_by: "system",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    }
+  });
+
+  return {
+    customers: Array.from(customersMap.values()),
+    assignments: assignmentsList
+  };
+}
+
+async function processNewInvoicesForCustomerMaster(sb: any, invoicesList: any[], usersList: any[]) {
+  const incomingCustomerNames = Array.from(new Set(invoicesList.map(inv => (inv.customerName || inv.customer_name || "").trim()).filter(Boolean)));
+  if (incomingCustomerNames.length === 0) return;
+
+  let existingNamesSet = new Set<string>();
+  if (sb) {
+    try {
+      const { data: existingcm, error } = await sb.from("customer_master").select("customer_name");
+      if (!error && existingcm) {
+        existingcm.forEach((c: any) => existingNamesSet.add(c.customer_name.trim().toLowerCase()));
+      }
+    } catch (_) {}
+  } else {
+    localCustomers.forEach((c: any) => existingNamesSet.add(c.customer_name.trim().toLowerCase()));
+  }
+
+  for (const cName of incomingCustomerNames) {
+    const normName = cName.trim().toLowerCase();
+    if (existingNamesSet.has(normName)) continue;
+
+    const firstInvoice = invoicesList.find(inv => (inv.customerName || inv.customer_name || "").trim().toLowerCase() === normName);
+    if (!firstInvoice) continue;
+
+    const spName = (firstInvoice.salesperson || "").trim();
+    const region = (firstInvoice.region || "").trim();
+    const customerCode = (firstInvoice.customerCode || firstInvoice.customer_code || "").trim();
+
+    const matchedUser = usersList.find(u => u.name && u.name.trim().toLowerCase() === spName.toLowerCase());
+    const userId = matchedUser ? matchedUser.id : (usersList[0]?.id || "user_admin");
+
+    const newCust = {
+      customer_name: cName.trim(),
+      gst_number: customerCode,
+      state: region,
+      status: "Active"
+    };
+
+    if (sb) {
+      try {
+        const { data: insertedCM, error: cmErr } = await sb.from("customer_master").insert(newCust).select();
+        if (!cmErr && insertedCM && insertedCM[0]) {
+          const custId = insertedCM[0].id;
+          await sb.from("customer_assignment").insert({
+            customer_id: custId,
+            user_id: userId,
+            allocation_percentage: 100,
+            is_active: true
+          });
+        }
+      } catch (err: any) {
+        console.error("Failed to auto-create customer master or assignment in Supabase:", err.message);
+      }
+    } else {
+      const cId = `cust_${cName.toLowerCase().replace(/[^a-z0-9]/g, "") || Math.floor(Math.random() * 100000)}`;
+      const localCM = {
+        id: cId,
+        customer_name: cName.trim(),
+        gst_number: customerCode,
+        state: region,
+        status: "Active",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      localCustomers.push(localCM);
+
+      localAssignments.push({
+        id: `assign_${cId}_${userId}`,
+        customer_id: cId,
+        user_id: userId,
+        allocation_percentage: 100,
+        effective_from: new Date().toISOString().split("T")[0],
+        effective_to: null,
+        is_active: true,
+        created_by: "system",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    }
+
+    existingNamesSet.add(normName);
+  }
+}
 
 // Lazy Load seed data inside server to write initial DB
 import { SEED_INVOICES, SEED_BUDGETS, SEED_USERS, INITIAL_AUDIT_LOGS, INITIAL_EMAIL_LOGS } from "./seedData.js";
@@ -449,16 +588,48 @@ async function loadDB() {
         localInvoices = loadedInvoices;
         localBudgets = loadedBudgets;
         localEmailLogs = loadedEmailLogs;
+
+        // Try loading customer master from Supabase, fallback to auto-generation
+        try {
+          const { data: dbCustomers, error: cmErr } = await sb.from("customer_master").select("*");
+          if (cmErr) throw cmErr;
+          localCustomers = dbCustomers || [];
+        } catch (err: any) {
+          console.warn("Supabase customer_master loading failed or table not found. Auto-generating from invoices:", err.message);
+          const generated = autoGenerateCustomerAssignmentsMaster(loadedInvoices, loadedUsers);
+          localCustomers = generated.customers;
+        }
+
+        // Try loading customer assignments from Supabase, fallback to auto-generation
+        try {
+          const { data: dbAssignments, error: caErr } = await sb.from("customer_assignment").select("*");
+          if (caErr) throw caErr;
+          localAssignments = dbAssignments || [];
+        } catch (err: any) {
+          console.warn("Supabase customer_assignment loading failed or table not found. Auto-generating from invoices:", err.message);
+          const generated = autoGenerateCustomerAssignmentsMaster(loadedInvoices, loadedUsers);
+          localAssignments = generated.assignments;
+        }
+
+        // Try loading customer assignment audit logs from Supabase
+        try {
+          const { data: dbAudits, error: auErr } = await sb.from("customer_assignment_audit_logs").select("*").order("timestamp", { ascending: false });
+          if (auErr) throw auErr;
+          localAssignmentAuditLogs = dbAudits || [];
+        } catch (err) {
+          localAssignmentAuditLogs = [];
+        }
+
         localAuditLogs = [
           {
             timestamp: new Date().toISOString(),
             user: "System",
             action: "Load Supabase Store",
-            details: `Successfully fetched dataset from Supabase instance. Users: ${localUsers.length}, Invoices: ${localInvoices.length}, Budgets: ${localBudgets.length}`,
+            details: `Successfully fetched dataset from Supabase instance. Users: ${localUsers.length}, Invoices: ${localInvoices.length}, Budgets: ${localBudgets.length}, Customers: ${localCustomers.length}`,
             status: "Success"
           }
         ];
-        console.log(`Supabase dynamic loaded: Users: ${localUsers.length}, Invoices: ${localInvoices.length}, Budgets: ${localBudgets.length}`);
+        console.log(`Supabase dynamic loaded: Users: ${localUsers.length}, Invoices: ${localInvoices.length}, Budgets: ${localBudgets.length}, Customers: ${localCustomers.length}`);
         return;
       }
     } catch (err: any) {
@@ -723,11 +894,46 @@ app.get("/api/db", async (req, res) => {
         status: a.status === "Completed" ? "Success" : "Success"
       }));
 
+      // Fetch Customer Master
+      let cmList = [];
+      try {
+        const { data: dbCM, error: cmE } = await sb.from("customer_master").select("*");
+        if (!cmE) cmList = dbCM || [];
+        else throw cmE;
+      } catch (err: any) {
+        console.warn("Table customer_master check failed, falling back to local memory:", err.message);
+        cmList = localCustomers;
+      }
+
+      // Fetch Customer Assignments
+      let caList = [];
+      try {
+        const { data: dbCA, error: caE } = await sb.from("customer_assignment").select("*");
+        if (!caE) caList = dbCA || [];
+        else throw caE;
+      } catch (err: any) {
+        console.warn("Table customer_assignment check failed, falling back to local memory:", err.message);
+        caList = localAssignments;
+      }
+
+      // Fetch Customer Assignment Audits
+      let caAuditList = [];
+      try {
+        const { data: dbCAA, error: caaE } = await sb.from("customer_assignment_audit_logs").select("*").order("timestamp", { ascending: false });
+        if (!caaE) caAuditList = dbCAA || [];
+        else throw caaE;
+      } catch (err: any) {
+        caAuditList = localAssignmentAuditLogs;
+      }
+
       // Update backend server local cache as hot standby
       localInvoices = formattedInvoices;
       localBudgets = formattedBudgets;
       localUsers = formattedUsers;
       localEmailLogs = formattedEmailLogs;
+      localCustomers = cmList;
+      localAssignments = caList;
+      localAssignmentAuditLogs = caAuditList;
 
       return res.json({
         invoices: formattedInvoices,
@@ -735,6 +941,9 @@ app.get("/api/db", async (req, res) => {
         auditLogs: [...formattedAudits, ...localAuditLogs],
         emailLogs: formattedEmailLogs,
         users: formattedUsers,
+        customers: cmList,
+        assignments: caList,
+        assignmentAuditLogs: caAuditList
       });
     } catch (err: any) {
       console.warn("Direct-DB-Read-Warn: Fallback to local memory file due to database issue:", err.message);
@@ -748,6 +957,9 @@ app.get("/api/db", async (req, res) => {
     auditLogs: localAuditLogs,
     emailLogs: localEmailLogs,
     users: localUsers,
+    customers: localCustomers,
+    assignments: localAssignments,
+    assignmentAuditLogs: localAssignmentAuditLogs
   });
 });
 
@@ -1007,6 +1219,7 @@ app.post("/api/db/save", async (req, res) => {
     });
   }
 
+  const sb = getSupabaseAdminClient();
   if (isImport) {
     backupInvoices = [...localInvoices];
     backupBudgets = [...localBudgets];
@@ -1030,13 +1243,13 @@ app.post("/api/db/save", async (req, res) => {
       }
     }
     localInvoices = uniqueInvoices;
+    await processNewInvoicesForCustomerMaster(sb, localInvoices, localUsers);
   }
   if (Array.isArray(budgets)) {
     localBudgets = budgets;
   }
 
   // Push directly to Supabase if connected
-  const sb = getSupabaseAdminClient();
   let supSynced = false;
   if (sb) {
     try {
@@ -1329,6 +1542,9 @@ app.post("/api/db/import", async (req, res) => {
         await sb.from("failed_upload_rows").insert(errorBatches);
       }
     }
+
+    // Auto-create customer master and default assignments for any new customers imported
+    await processNewInvoicesForCustomerMaster(sb, newInvoices, localUsers);
 
     // Row count validation
     const { count: freshDbSalesCount } = await sb.from("sales_data").select("*", { count: "exact", head: true });
@@ -2203,6 +2419,188 @@ Include bullet points for key KPI targets, highlight achievements or gaps, and g
     res.json({ success: true, count: processedEmails.length, logs: processedEmails });
   } catch (error: any) {
     res.status(500).json({ error: "Failed to run scheduler. " + error.message });
+  }
+});
+
+// --- CUSTOMER MASTER & ASSIGNMENT MASTER API ENDPOINTS ---
+
+// 1. Save/Update Customer Master record
+app.post("/api/customers/save", async (req, res) => {
+  const { customer } = req.body || {};
+  if (!customer || !customer.customer_name) {
+    return res.status(400).json({ success: false, error: "Customer name is required." });
+  }
+
+  const sb = getSupabaseAdminClient();
+  const payload = {
+    customer_name: customer.customer_name.trim(),
+    contact_person: customer.contact_person || "",
+    contact_number: customer.contact_number || "",
+    email: customer.email || "",
+    address: customer.address || "",
+    city: customer.city || "",
+    state: customer.state || "",
+    pin_code: customer.pin_code || "",
+    gst_number: customer.gst_number || "",
+    pan_number: customer.pan_number || "",
+    status: customer.status || "Active",
+    updated_at: new Date().toISOString()
+  };
+
+  if (sb) {
+    try {
+      let result;
+      if (customer.id && !customer.id.includes("cust_")) {
+        result = await sb.from("customer_master").update(payload).eq("id", customer.id).select();
+      } else {
+        result = await sb.from("customer_master").insert({
+          ...payload,
+          created_at: new Date().toISOString()
+        }).select();
+      }
+
+      if (result.error) throw result.error;
+
+      // Reload local cache
+      const { data: dbCustomers } = await sb.from("customer_master").select("*");
+      if (dbCustomers) localCustomers = dbCustomers;
+
+      return res.json({ success: true, customer: result.data?.[0] });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  } else {
+    // Offline local fallback
+    if (customer.id) {
+      localCustomers = localCustomers.map(c => c.id === customer.id ? { ...c, ...payload } : c);
+    } else {
+      const newCust = {
+        ...payload,
+        id: `cust_${customer.customer_name.toLowerCase().replace(/[^a-z0-9]/g, "") || Date.now()}`,
+        created_at: new Date().toISOString()
+      };
+      localCustomers.push(newCust);
+    }
+    return res.json({ success: true, customers: localCustomers });
+  }
+});
+
+// 2. Save Customer Assignments (verifies that allocation totals exactly 100%)
+app.post("/api/assignments/save", async (req, res) => {
+  const { customerId, customerName, assignments, adminUser } = req.body || {};
+
+  if (!customerId || !Array.isArray(assignments)) {
+    return res.status(400).json({ success: false, error: "Invalid payload parameters." });
+  }
+
+  // Validate allocations sum to exactly 100%
+  const totalAlloc = assignments.reduce((sum, a) => sum + (Number(a.allocation_percentage) || 0), 0);
+  if (totalAlloc !== 100) {
+    return res.status(400).json({
+      success: false,
+      error: `Validation Error: The total allocation percentage for "${customerName}" must equal exactly 100%. Current sum: ${totalAlloc}%.`
+    });
+  }
+
+  const sb = getSupabaseAdminClient();
+  if (sb) {
+    try {
+      // Get old assignments to write audit logs
+      const { data: oldAssigns } = await sb.from("customer_assignment").select("user_id, allocation_percentage").eq("customer_id", customerId);
+      const oldValStr = JSON.stringify(oldAssigns || []);
+
+      // Delete old assignments
+      await sb.from("customer_assignment").delete().eq("customer_id", customerId);
+
+      // Insert new assignments
+      const rows = assignments.map(a => ({
+        customer_id: customerId,
+        user_id: a.user_id,
+        allocation_percentage: Number(a.allocation_percentage) || 0,
+        is_active: a.is_active !== false,
+        updated_at: new Date().toISOString()
+      }));
+
+      await sb.from("customer_assignment").insert(rows.map(r => ({
+        ...r,
+        created_at: new Date().toISOString()
+      })));
+
+      // Log audit
+      const newValStr = JSON.stringify(rows);
+      await sb.from("customer_assignment_audit_logs").insert({
+        customer_id: customerId,
+        customer_name: customerName,
+        admin_user: adminUser || "System Admin",
+        action: "Modify Assignments",
+        old_value: oldValStr,
+        new_value: newValStr
+      });
+
+      // Reload local cache
+      const { data: dbCA } = await sb.from("customer_assignment").select("*");
+      if (dbCA) localAssignments = dbCA;
+
+      const { data: dbCAA } = await sb.from("customer_assignment_audit_logs").select("*").order("timestamp", { ascending: false });
+      if (dbCAA) localAssignmentAuditLogs = dbCAA;
+
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  } else {
+    // Offline local storage mock save
+    const oldAssigns = localAssignments.filter(a => a.customer_id === customerId);
+    const oldValStr = JSON.stringify(oldAssigns);
+
+    // Delete old
+    localAssignments = localAssignments.filter(a => a.customer_id !== customerId);
+
+    // Insert new
+    const rows = assignments.map(a => ({
+      id: `assign_${customerId}_${a.user_id}_${Date.now()}`,
+      customer_id: customerId,
+      user_id: a.user_id,
+      allocation_percentage: Number(a.allocation_percentage) || 0,
+      effective_from: new Date().toISOString().split("T")[0],
+      effective_to: null,
+      is_active: a.is_active !== false,
+      created_by: "system",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }));
+    localAssignments.push(...rows);
+
+    // Audit log
+    const newValStr = JSON.stringify(rows);
+    localAssignmentAuditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      customer_id: customerId,
+      customer_name: customerName,
+      admin_user: adminUser || "System Admin",
+      timestamp: new Date().toISOString(),
+      action: "Modify Assignments",
+      old_value: oldValStr,
+      new_value: newValStr
+    });
+
+    return res.json({ success: true, assignments: localAssignments });
+  }
+});
+
+// 3. Get customer assignment audit logs
+app.get("/api/assignments/audit", async (req, res) => {
+  const sb = getSupabaseAdminClient();
+  if (sb) {
+    try {
+      const { data: dbAudits, error } = await sb.from("customer_assignment_audit_logs").select("*").order("timestamp", { ascending: false });
+      if (error) throw error;
+      return res.json({ success: true, logs: dbAudits || [] });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  } else {
+    return res.json({ success: true, logs: localAssignmentAuditLogs });
   }
 });
 

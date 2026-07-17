@@ -96,3 +96,44 @@ export interface DashboardMetrics {
   topPerformingRegion: string;
   topDecliningRegion: string;
 }
+
+export interface CustomerMaster {
+  id: string;
+  customer_name: string;
+  contact_person?: string;
+  contact_number?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pin_code?: string;
+  gst_number?: string;
+  pan_number?: string;
+  status: "Active" | "Inactive";
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CustomerAssignment {
+  id: string;
+  customer_id: string;
+  user_id: string;
+  allocation_percentage: number;
+  effective_from: string;
+  effective_to?: string;
+  is_active: boolean;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AssignmentAuditLog {
+  id: string;
+  customer_id?: string;
+  customer_name: string;
+  admin_user: string;
+  timestamp: string;
+  action: string;
+  old_value?: string;
+  new_value?: string;
+}

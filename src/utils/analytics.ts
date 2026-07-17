@@ -12,22 +12,20 @@ import { SEED_USERS } from "../data/seedData";
 // But we generalize this helper to accept any invoiceDate and compare it within the respective financial years.
 export function isDateInYTDPeriod(dateStr: string, year: number, upToMonth: number = 4, upToDay: number = 26): boolean {
   if (!dateStr) return false;
-  const d = new Date(dateStr);
-  const start = new Date(year, 2, 1); // 1st March (Months are 0-indexed, so 2 = March)
-  
-  // Cross-calendar boundary: Jan (0) or Feb (1) fall in the next calendar year of the fiscal year
+  const startStr = `${year}-03-01`;
+  const endMonthStr = String(upToMonth + 1).padStart(2, "0");
+  const endDayStr = String(upToDay).padStart(2, "0");
   const endYear = year + (upToMonth < 2 ? 1 : 0);
-  const end = new Date(endYear, upToMonth, upToDay, 23, 59, 59);
-  
-  return d >= start && d <= end;
+  const endStr = `${endYear}-${endMonthStr}-${endDayStr}`;
+  return dateStr >= startStr && dateStr <= endStr;
 }
 
 // Check if a date falls in the full fiscal year (1 Mar to 28 Feb)
 export function isDateInFiscalYear(dateStr: string, startYear: number): boolean {
-  const d = new Date(dateStr);
-  const start = new Date(startYear, 2, 1); // 1 Mar
-  const end = new Date(startYear + 1, 1, 28, 23, 59, 59); // 28 Feb
-  return d >= start && d <= end;
+  if (!dateStr) return false;
+  const startStr = `${startYear}-03-01`;
+  const endBoundStr = `${startYear + 1}-03-01`;
+  return dateStr >= startStr && dateStr < endBoundStr;
 }
 
 // Helper to find all descendants of a given user recursively using BFS (strict Assigned Manager reporting match)
@@ -578,9 +576,10 @@ export function compileAnalytics(
   const productMonthlyMap = new Map<string, { [monthKey: number]: { current: number; prev: number } }>();
   scopedInvoices.forEach((inv) => {
     if (!inv.invoiceDate) return;
-    const d = new Date(inv.invoiceDate);
-    const y = d.getFullYear();
-    const m = d.getMonth();
+    const parts = inv.invoiceDate.split("-");
+    if (parts.length < 3) return;
+    const y = Number(parts[0]);
+    const m = Number(parts[1]) - 1; // 0-indexed month
     const pName = inv.productName;
     if (!productMonthlyMap.has(pName)) {
       productMonthlyMap.set(pName, {});

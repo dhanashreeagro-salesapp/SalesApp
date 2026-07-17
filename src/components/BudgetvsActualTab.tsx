@@ -376,10 +376,11 @@ export default function BudgetvsActualTab({
 
       // Apply Search Query filter
       if (searchQuery && searchQuery.trim() !== "") {
-        const q = searchQuery.toLowerCase();
-        const custName = (inv.customerName || "").toLowerCase();
-        const custCode = (inv.customerCode || "").toLowerCase();
-        const prodName = (inv.productName || "").toLowerCase();
+        const clean = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const q = clean(searchQuery);
+        const custName = clean(inv.customerName);
+        const custCode = clean(inv.customerCode);
+        const prodName = clean(inv.productName);
         const isMatch = custName.includes(q) || custCode.includes(q) || prodName.includes(q);
         if (!isMatch) return false;
       }

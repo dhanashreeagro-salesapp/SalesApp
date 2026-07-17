@@ -27,9 +27,9 @@ import {
   AlertTriangle,
   X
 } from "lucide-react";
-import { InvoiceItem, BudgetItem, UserProfile, AuditLog, EmailLog } from "./types";
+import { InvoiceItem, BudgetItem, UserProfile, AuditLog, EmailLog, CustomerMaster, CustomerAssignment, AssignmentAuditLog } from "./types";
 import { SEED_USERS } from "./data/seedData";
-import { compileAnalytics, filterDataByRole } from "./utils/analytics";
+import { compileAnalytics, filterDataByRole, isFuzzyNameMatch } from "./utils/analytics";
 import ExecutiveDashboard from "./components/ExecutiveDashboard";
 import UploadCenter from "./components/UploadCenter";
 import AiAssistant from "./components/AiAssistant";
@@ -39,6 +39,7 @@ import LoginScreen from "./components/LoginScreen";
 import InvoiceLedger from "./components/InvoiceLedger";
 import BudgetLedger from "./components/BudgetLedger";
 import AuditLogsView from "./components/AuditLogsView";
+import MySalesDesk from "./components/MySalesDesk";
 import dhanashreeLogo from "./assets/images/dhanashree_logo_1779970374585.png";
 import { 
   isSupabaseConfigured, 
@@ -73,14 +74,113 @@ const safeSetLocalStorage = (key: string, value: string) => {
     console.warn(`Local Storage write failed for key "${key}". Browser storage quota exceeded, but transaction is safely written to the backend server.`, error);
   }
 };
+function autoGenerateCustomerAssignmentsMaster(invoicesList: any[], usersList: any[]) {
+  const customersMap = new Map<string, any>();
+  const assignmentsList: any[] = [];
+  const cleanStr = (s: string) => (s || "").trim();
+
+  invoicesList.forEach(inv => {
+    const cName = cleanStr(inv.customerName);
+    if (!cName) return;
+
+    const normName = cName.toLowerCase();
+    if (!customersMap.has(normName)) {
+      const cId = `cust_${normName.replace(/[^a-z0-9]/g, "") || Math.floor(Math.random() * 10005)}`;
+      customersMap.set(normName, {
+        id: cId,
+        customer_name: cName,
+        contact_person: "",
+        contact_number: "",
+        email: "",
+        address: "",
+        city: "",
+        state: inv.region || "",
+        pin_code: "",
+        gst_number: inv.customerCode || "",
+        pan_number: "",
+        status: "Active",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+      const spNameNorm = cleanStr(inv.salesperson).toLowerCase();
+      const matchedUser = usersList.find(u => u.name && u.name.toLowerCase().trim() === spNameNorm);
+      const userId = matchedUser ? matchedUser.id : (usersList[0]?.id || "user_admin");
+
+      assignmentsList.push({
+        id: `assign_${cId}_${userId}`,
+        customer_id: cId,
+        user_id: userId,
+        allocation_percentage: 100,
+        effective_from: new Date().toISOString().split("T")[0],
+        effective_to: null,
+        is_active: true,
+        created_by: "system",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    }
+  });
+
+  return {
+    customers: Array.from(customersMap.values()),
+    assignments: assignmentsList
+  };
+}
 
 export default function App() {
   const isVercelOrStatic = typeof window !== "undefined" && (window.location.hostname.includes("vercel.app") || window.location.hostname.includes("github.io"));
-  const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
+  const [rawInvoices, setRawInvoices] = useState<InvoiceItem[]>([]);
   const [budgets, setBudgets] = useState<BudgetItem[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [customers, setCustomers] = useState<CustomerMaster[]>([]);
+  const [assignments, setAssignments] = useState<CustomerAssignment[]>([]);
+  const [assignmentAuditLogs, setAssignmentAuditLogs] = useState<AssignmentAuditLog[]>([]);
+
+  // Dynamic runtime invoice splitting based on Customer Assignment Master
+  const invoices = useMemo(() => {
+    if (rawInvoices.length === 0) return [];
+    
+    return rawInvoices.flatMap((inv) => {
+      if (!inv.customerName) return [inv];
+      
+      const matchedCM = customers.find(c => isFuzzyNameMatch(c.customer_name, inv.customerName));
+      if (!matchedCM) {
+        return [inv];
+      }
+
+      const custAssignments = assignments.filter(a => a.customer_id === matchedCM.id && a.is_active);
+      if (custAssignments.length === 0) {
+        return [inv];
+      }
+
+      return custAssignments.map(assign => {
+        const factor = (Number(assign.allocation_percentage) || 0) / 100;
+        const matchedUser = users.find(u => u.id === assign.user_id);
+        const uName = matchedUser?.name || "Unassigned Representative";
+        const uId = matchedUser?.id || "";
+        const uRegion = matchedUser?.region || inv.region || "";
+        const uTerritory = matchedUser?.territory || inv.territory || "";
+        const uManagerName = matchedUser?.managerName || "";
+
+        return {
+          ...inv,
+          id: `${inv.id}_split_${assign.id}`,
+          quantity: inv.quantity * factor,
+          grossValue: inv.grossValue * factor,
+          discount: inv.discount * factor,
+          netSalesValue: inv.netSalesValue * factor,
+          salesperson: uName,
+          salesperson_id: uId,
+          region: uRegion,
+          territory: uTerritory,
+          regionalManager: uManagerName
+        } as InvoiceItem;
+      });
+    });
+  }, [rawInvoices, customers, assignments, users]);
   const [reconciliationWarning, setReconciliationWarning] = useState<{
     mismatch: boolean;
     loadedCount: number;
@@ -90,7 +190,7 @@ export default function App() {
 
   const [selectedUser, setSelectedUser] = useState<UserProfile>(SEED_USERS[0]); // Default to Sales Director
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [activeTab, setActiveTab ] = useState<"executive" | "upload" | "scheduler" | "advisor" | "admin" | "ledger" | "audit" | "budget-ledger">("executive");
+  const [activeTab, setActiveTab ] = useState<"executive" | "upload" | "scheduler" | "advisor" | "admin" | "ledger" | "audit" | "budget-ledger" | "commandDesk">("executive");
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
@@ -124,6 +224,9 @@ export default function App() {
       let serverAuditLogs: AuditLog[] = [];
       let serverEmailLogs: EmailLog[] = [];
       let serverUsers: UserProfile[] = [];
+      let serverCustomers: CustomerMaster[] = [];
+      let serverAssignments: CustomerAssignment[] = [];
+      let serverAssignmentAuditLogs: AssignmentAuditLog[] = [];
       let loadedFromBackend = false;
       try {
         const response = await fetch(`${API_BASE}/api/db`);
@@ -134,6 +237,9 @@ export default function App() {
           serverAuditLogs = data.auditLogs || [];
           serverEmailLogs = data.emailLogs || [];
           serverUsers = data.users || [];
+          serverCustomers = data.customers || [];
+          serverAssignments = data.assignments || [];
+          serverAssignmentAuditLogs = data.assignmentAuditLogs || [];
           loadedFromBackend = true;
           console.log("Database Sync: Loaded all records successfully from local Express API backend.");
         }
@@ -160,10 +266,13 @@ export default function App() {
         }
       }
       
-      setInvoices(serverInvoices);
+      setRawInvoices(serverInvoices);
       setBudgets(serverBudgets);
       setAuditLogs(serverAuditLogs);
       setEmailLogs(serverEmailLogs);
+      setCustomers(serverCustomers);
+      setAssignments(serverAssignments);
+      setAssignmentAuditLogs(serverAssignmentAuditLogs);
 
       // Row count reconciliation check
       if (isSupabaseConfigured()) {
@@ -316,6 +425,9 @@ export default function App() {
       safeSetLocalStorage("agroSalesAuditLogs", JSON.stringify(serverAuditLogs));
       safeSetLocalStorage("agroSalesEmailLogs", JSON.stringify(serverEmailLogs));
       safeSetLocalStorage("agroSalesUsersList", JSON.stringify(verifiedUsers));
+      safeSetLocalStorage("agroSalesCustomersList", JSON.stringify(serverCustomers));
+      safeSetLocalStorage("agroSalesAssignmentsList", JSON.stringify(serverAssignments));
+      safeSetLocalStorage("agroSalesAssignmentAuditLogs", JSON.stringify(serverAssignmentAuditLogs));
 
       // Update our selected user state in case list changed
       const localSession = localStorage.getItem("agroSalesSession");
@@ -345,12 +457,18 @@ export default function App() {
       const fallbackAuditLogsStr = localStorage.getItem("agroSalesAuditLogs");
       const fallbackEmailLogsStr = localStorage.getItem("agroSalesEmailLogs");
       const fallbackUsersStr = localStorage.getItem("agroSalesUsersList");
+      const fallbackCustomersStr = localStorage.getItem("agroSalesCustomersList");
+      const fallbackAssignmentsStr = localStorage.getItem("agroSalesAssignmentsList");
+      const fallbackAssignmentAuditLogsStr = localStorage.getItem("agroSalesAssignmentAuditLogs");
 
       let localInvoices: InvoiceItem[] = [];
       let localBudgets: BudgetItem[] = [];
       let localAuditLogs: AuditLog[] = [];
       let localEmailLogs: EmailLog[] = [];
       let localUsersList: UserProfile[] = [];
+      let localCustomersList: CustomerMaster[] = [];
+      let localAssignmentsList: CustomerAssignment[] = [];
+      let localAssignmentAuditLogsList: AssignmentAuditLog[] = [];
 
       if (fallbackAuditLogsStr) {
         try { localAuditLogs = JSON.parse(fallbackAuditLogsStr); } catch (_) {}
@@ -361,10 +479,27 @@ export default function App() {
       if (fallbackUsersStr) {
         try { localUsersList = JSON.parse(fallbackUsersStr); } catch (_) {}
       }
+      if (fallbackCustomersStr) {
+        try { localCustomersList = JSON.parse(fallbackCustomersStr); } catch (_) {}
+      }
+      if (fallbackAssignmentsStr) {
+        try { localAssignmentsList = JSON.parse(fallbackAssignmentsStr); } catch (_) {}
+      }
+      if (fallbackAssignmentAuditLogsStr) {
+        try { localAssignmentAuditLogsList = JSON.parse(fallbackAssignmentAuditLogsStr); } catch (_) {}
+      }
 
       if (localUsersList.length === 0) {
         localUsersList = [...SEED_USERS];
         safeSetLocalStorage("agroSalesUsersList", JSON.stringify(localUsersList));
+      }
+
+      if (localCustomersList.length === 0 && localInvoices.length > 0) {
+        const generated = autoGenerateCustomerAssignmentsMaster(localInvoices, localUsersList);
+        localCustomersList = generated.customers;
+        localAssignmentsList = generated.assignments;
+        safeSetLocalStorage("agroSalesCustomersList", JSON.stringify(localCustomersList));
+        safeSetLocalStorage("agroSalesAssignmentsList", JSON.stringify(localAssignmentsList));
       }
 
       // Enforce the dhanashree user with password MyWorld99 exists and is in the list
@@ -397,11 +532,14 @@ export default function App() {
       }
 
       // Sync state back
-      setInvoices(localInvoices);
+      setRawInvoices(localInvoices);
       setBudgets(localBudgets);
       setAuditLogs(localAuditLogs);
       setEmailLogs(localEmailLogs);
       setUsers(localUsersList);
+      setCustomers(localCustomersList);
+      setAssignments(localAssignmentsList);
+      setAssignmentAuditLogs(localAssignmentAuditLogsList);
 
       const localSession = localStorage.getItem("agroSalesSession");
       if (localSession && localSession !== "undefined" && localSession !== "null") {
@@ -440,6 +578,7 @@ export default function App() {
     setIsAuthenticated(false);
     setActiveTab("executive");
     localStorage.removeItem("agroSalesSession");
+    localStorage.removeItem("agroSalesUsersList");
     if (users.length > 0) {
       setSelectedUser(users[0]);
     } else {
@@ -627,6 +766,49 @@ export default function App() {
     safeSetLocalStorage("agroSalesAuditLogs", JSON.stringify(fallbackLogs));
 
     return { success: true, serverSynced: false, error: "Database offline fallback: saved in browser local storage only." };
+  };
+
+  const handleSaveCustomerMaster = async (customer: any) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/customers/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || "Failed to save customer master details.");
+      }
+      await fetchDatabase(true); // reload client cache
+      return true;
+    } catch (err: any) {
+      console.error(err);
+      throw err;
+    }
+  };
+
+  const handleSaveCustomerAssignments = async (customerId: string, customerName: string, assignmentsList: any[], adminUser: string) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/assignments/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId,
+          customerName,
+          assignments: assignmentsList,
+          adminUser
+        })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || "Failed to save customer assignments.");
+      }
+      await fetchDatabase(true); // reload client cache
+      return true;
+    } catch (err: any) {
+      console.error(err);
+      throw err;
+    }
   };
 
   // Revoke credentials
@@ -855,17 +1037,25 @@ export default function App() {
         });
       }
 
-      setInvoices(SEED_INVOICES);
+      setRawInvoices(SEED_INVOICES);
       setBudgets(SEED_BUDGETS);
       setAuditLogs(INITIAL_AUDIT_LOGS);
       setEmailLogs(INITIAL_EMAIL_LOGS);
       setUsers(verifiedUsers);
+
+      const generated = autoGenerateCustomerAssignmentsMaster(SEED_INVOICES, verifiedUsers);
+      setCustomers(generated.customers);
+      setAssignments(generated.assignments);
+      setAssignmentAuditLogs([]);
 
       safeSetLocalStorage("agroSalesInvoices", JSON.stringify(SEED_INVOICES));
       safeSetLocalStorage("agroSalesBudgets", JSON.stringify(SEED_BUDGETS));
       safeSetLocalStorage("agroSalesAuditLogs", JSON.stringify(INITIAL_AUDIT_LOGS));
       safeSetLocalStorage("agroSalesEmailLogs", JSON.stringify(INITIAL_EMAIL_LOGS));
       safeSetLocalStorage("agroSalesUsersList", JSON.stringify(verifiedUsers));
+      safeSetLocalStorage("agroSalesCustomersList", JSON.stringify(generated.customers));
+      safeSetLocalStorage("agroSalesAssignmentsList", JSON.stringify(generated.assignments));
+      safeSetLocalStorage("agroSalesAssignmentAuditLogs", "[]");
       
       const adminUser = verifiedUsers.find((u: any) => u.email.toLowerCase() === "dhanashree.agro@gmail.com") || verifiedUsers[0];
       setSelectedUser(adminUser);
@@ -964,20 +1154,18 @@ export default function App() {
     let m = 4; // default May (months are 0-indexed)
     let d = 26; // default 26th
     if (invoices && invoices.length > 0) {
-      let maxTime = 0;
-      let latestInvDate: Date | null = null;
+      let latestInvDateStr = "";
       invoices.forEach((inv) => {
-        if (inv.invoiceDate) {
-          const t = new Date(inv.invoiceDate).getTime();
-          if (!isNaN(t) && t > maxTime) {
-            maxTime = t;
-            latestInvDate = new Date(inv.invoiceDate);
-          }
+        if (inv.invoiceDate && inv.invoiceDate > latestInvDateStr) {
+          latestInvDateStr = inv.invoiceDate;
         }
       });
-      if (latestInvDate) {
-        m = (latestInvDate as Date).getMonth();
-        d = (latestInvDate as Date).getDate();
+      if (latestInvDateStr) {
+        const parts = latestInvDateStr.split("-");
+        if (parts.length >= 3) {
+          m = Number(parts[1]) - 1; // 0-indexed month
+          d = Number(parts[2]);
+        }
       }
     }
     return { latestMonth: m, latestDay: d };
@@ -1216,6 +1404,16 @@ export default function App() {
               AI Insights Assistant
             </button>
 
+            <button
+              onClick={() => { setActiveTab("commandDesk"); setIsMobileSidebarOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition ${
+                activeTab === "commandDesk" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+              }`}
+            >
+              <Users className="w-4 h-4 shrink-0" />
+              My Sales Desk
+            </button>
+
             {selectedUser && selectedUser.role === "Admin" && (
               <button
                 onClick={() => { setActiveTab("upload"); setIsMobileSidebarOpen(false); }}
@@ -1388,6 +1586,14 @@ export default function App() {
             />
           )}
 
+          {activeTab === "commandDesk" && (
+            <MySalesDesk
+              currentUser={selectedUser}
+              scopedInvoices={currentUserInvoices}
+              users={users}
+            />
+          )}
+
           {activeTab === "upload" && selectedUser && selectedUser.role === "Admin" && (
             <UploadCenter
               onDataUploaded={handleUploadedFiles}
@@ -1432,6 +1638,11 @@ export default function App() {
               onSaveUsersBulk={handleSaveUsersBulk}
               onDeleteUser={handleDeleteUser}
               invoices={invoices}
+              customers={customers}
+              assignments={assignments}
+              assignmentAuditLogs={assignmentAuditLogs}
+              onSaveCustomer={handleSaveCustomerMaster}
+              onSaveAssignments={handleSaveCustomerAssignments}
             />
           )}
 

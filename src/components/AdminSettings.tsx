@@ -5,8 +5,9 @@
 
 import React, { useState } from "react";
 import { Settings, Shield, Terminal, Library, AlertCircle, RefreshCw, Layers, CheckCircle, Users, UserPlus, Trash2, Edit3, Key, Mail, MapPin, ArrowUp, ShieldCheck, Activity, Database, AlertTriangle, UploadCloud, FileSpreadsheet } from "lucide-react";
-import { AuditLog, UserProfile, InvoiceItem } from "../types";
+import { AuditLog, UserProfile, InvoiceItem, CustomerMaster, CustomerAssignment, AssignmentAuditLog } from "../types";
 import * as XLSX from "xlsx";
+import CustomerAssignmentsPanel from "./CustomerAssignmentsPanel";
 
 import { 
   isSupabaseConfigured,
@@ -36,6 +37,11 @@ interface AdminSettingsProps {
   onSaveUsersBulk: (users: any[]) => Promise<any>;
   onDeleteUser: (userId: string) => Promise<boolean>;
   invoices: InvoiceItem[];
+  customers: CustomerMaster[];
+  assignments: CustomerAssignment[];
+  assignmentAuditLogs: AssignmentAuditLog[];
+  onSaveCustomer: (customer: any) => Promise<any>;
+  onSaveAssignments: (customerId: string, customerName: string, assignments: any[], adminUser: string) => Promise<any>;
 }
 
 function AdminDebugPanel({ invoices, users }: { invoices: InvoiceItem[], users: UserProfile[] }) {
@@ -267,8 +273,13 @@ export default function AdminSettings({
   onSaveUsersBulk,
   onDeleteUser,
   invoices,
+  customers,
+  assignments,
+  assignmentAuditLogs,
+  onSaveCustomer,
+  onSaveAssignments,
 }: AdminSettingsProps) {
-  const [activeSubTab, setActiveSubTab] = useState<"standard" | "users" | "debug">("standard");
+  const [activeSubTab, setActiveSubTab] = useState<"standard" | "users" | "customers" | "debug">("standard");
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
 
@@ -705,6 +716,8 @@ export default function AdminSettings({
       localStorage.removeItem("agroSalesBudgets");
       localStorage.removeItem("agroSalesAuditLogs");
       localStorage.removeItem("agroSalesEmailLogs");
+      localStorage.removeItem("agroSalesUsersList");
+      localStorage.removeItem("agroSalesSession");
       setSuccessMsg("Local state wiped out. Executing synchronized browser reload...");
       setTimeout(() => {
         window.location.reload();
@@ -847,6 +860,15 @@ export default function AdminSettings({
           >
             <Users className="w-3.5 h-3.5" />
             User directory ({users.length})
+          </button>
+          <button
+            onClick={() => setActiveSubTab("customers")}
+            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+              activeSubTab === "customers" ? "bg-white text-green-700 shadow-xs" : "text-gray-550 hover:text-gray-900"
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            Customer Assignments ({customers.length})
           </button>
           <button
             onClick={() => setActiveSubTab("debug")}
@@ -1260,6 +1282,16 @@ export default function AdminSettings({
 
           </div> {/* End of Column 3 wrapper */}
         </div>
+      ) : activeSubTab === "customers" ? (
+        <CustomerAssignmentsPanel
+          currentUser={currentUser}
+          users={users}
+          customers={customers}
+          assignments={assignments}
+          assignmentAuditLogs={assignmentAuditLogs}
+          onSaveCustomer={onSaveCustomer}
+          onSaveAssignments={onSaveAssignments}
+        />
       ) : (
         <AdminDebugPanel invoices={invoices} users={users} />
       )}
