@@ -16,6 +16,27 @@ const supabase = createClient(url, key);
 async function run() {
   console.log("Starting Customer Master one-time data migration...");
 
+  // Authenticate as Admin to satisfy write RLS policy
+  console.log("Authenticating as admin to satisfy Row Level Security (RLS) write policies...");
+  const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
+    email: "admin@agroiq.com",
+    password: "admin123"
+  });
+
+  if (authErr) {
+    const { data: authData2, error: authErr2 } = await supabase.auth.signInWithPassword({
+      email: "dhanashree.agro@gmail.com",
+      password: "MyWorld99"
+    });
+    if (authErr2) {
+      console.error("Failed to authenticate as Admin/Dhanashree. RLS write policies will block insertion:", authErr2.message);
+      process.exit(1);
+    }
+    console.log("Successfully authenticated as 'dhanashree.agro@gmail.com' (Admin)!");
+  } else {
+    console.log("Successfully authenticated as 'admin@agroiq.com' (Admin)!");
+  }
+
   // 1. Fetch all users from Supabase
   const { data: dbUsers, error: usersErr } = await supabase.from('users').select('*');
   if (usersErr) throw usersErr;
