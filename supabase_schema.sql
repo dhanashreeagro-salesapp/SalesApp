@@ -229,17 +229,12 @@ using (
 );
 
 -- 4. SALES_DATA POLICIES
-create policy "Salesperson read/write restrictions: self territory only"
+drop policy if exists "Salesperson read/write restrictions: self territory only" on public.sales_data;
+drop policy if exists "Allow read access on sales_data to all authenticated users" on public.sales_data;
+
+create policy "Allow read access on sales_data to all authenticated users"
 on public.sales_data for select
-using (
-    auth.email() is null  -- Allow backend server admin credentials fallback queries
-    or
-    (select role from public.get_current_user_profile()) = 'Salesperson' and territory = (select territory from public.get_current_user_profile())
-    or 
-    (select role from public.get_current_user_profile()) = 'Regional Manager' and (manager_id = (select id from public.get_current_user_profile()) or salesperson_id = (select id from public.get_current_user_profile()) or public.is_descendant_of(salesperson_id, (select id from public.get_current_user_profile())))
-    or
-    (select role from public.get_current_user_profile()) in ('Sales Director', 'Admin')
-);
+using (true);
 
 create policy "Allow writes on sales data for direct sales representatives and up"
 on public.sales_data for all

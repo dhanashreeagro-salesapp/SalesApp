@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { InvoiceItem, BudgetItem, UserProfile, EmailLog, AuditLog } from "../types";
+import { InvoiceItem, BudgetItem, UserProfile, EmailLog, AuditLog, CustomerMaster, CustomerAssignment, AssignmentAuditLog } from "../types";
 
 // Read from Vite environment variables as per requirements
 const sanitizeEnvVal = (val: string): string => {
@@ -1177,4 +1177,54 @@ function mapSalesRow(row: any): InvoiceItem {
     discount: Number(row.discount) || 0,
     netSalesValue: Number(row.net_value) || 0
   };
+}
+
+export async function fetchCustomerMasterFromSupabase(): Promise<CustomerMaster[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+
+  const { data, error } = await sb
+    .from("customer_master")
+    .select("*")
+    .order("customer_name", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching customer_master from Supabase:", error);
+    return [];
+  }
+
+  return data || [];
+}
+
+export async function fetchCustomerAssignmentsFromSupabase(): Promise<CustomerAssignment[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+
+  const { data, error } = await sb
+    .from("customer_assignment")
+    .select("*");
+
+  if (error) {
+    console.error("Error fetching customer_assignment from Supabase:", error);
+    return [];
+  }
+
+  return data || [];
+}
+
+export async function fetchCustomerAssignmentAuditLogsFromSupabase(): Promise<AssignmentAuditLog[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+
+  const { data, error } = await sb
+    .from("customer_assignment_audit_logs")
+    .select("*")
+    .order("timestamp", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching customer_assignment_audit_logs from Supabase:", error);
+    return [];
+  }
+
+  return data || [];
 }

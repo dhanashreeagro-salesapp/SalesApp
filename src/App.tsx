@@ -48,6 +48,9 @@ import {
   fetchBudgetDataFromSupabase,
   fetchEmailLogsFromSupabase,
   fetchAuditLogsFromSupabase,
+  fetchCustomerMasterFromSupabase,
+  fetchCustomerAssignmentsFromSupabase,
+  fetchCustomerAssignmentAuditLogsFromSupabase,
   saveUserProfileToSupabase,
   deleteUserFromSupabase,
   saveBudgetsToSupabase,
@@ -250,12 +253,24 @@ export default function App() {
       if (!loadedFromBackend) {
         if (isSupabaseConfigured()) {
           console.log("Supabase Cloud Sync: Fetching records directly from PostgreSQL...");
-          [serverUsers, serverInvoices, serverBudgets, serverEmailLogs, serverAuditLogs] = await Promise.all([
+          [
+            serverUsers,
+            serverInvoices,
+            serverBudgets,
+            serverEmailLogs,
+            serverAuditLogs,
+            serverCustomers,
+            serverAssignments,
+            serverAssignmentAuditLogs
+          ] = await Promise.all([
             fetchUsersFromSupabase(),
             fetchSalesDataFromSupabase(),
             fetchBudgetDataFromSupabase(),
             fetchEmailLogsFromSupabase(),
-            fetchAuditLogsFromSupabase()
+            fetchAuditLogsFromSupabase(),
+            fetchCustomerMasterFromSupabase(),
+            fetchCustomerAssignmentsFromSupabase(),
+            fetchCustomerAssignmentAuditLogsFromSupabase()
           ]);
         } else {
           serverInvoices = [];
