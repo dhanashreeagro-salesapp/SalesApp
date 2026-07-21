@@ -284,7 +284,39 @@ export default function LoginScreen({
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">Security Password</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">Security Password</label>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!email || !email.trim()) {
+                        setError("Please enter your email address in the field above to receive a password reset link.");
+                        return;
+                      }
+                      setError(null);
+                      setRegSuccess(null);
+                      try {
+                        const API_BASE = import.meta.env.VITE_API_URL || "";
+                        const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ email: email.trim() })
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                          setRegSuccess(data.message || "Password reset link sent to your email.");
+                        } else {
+                          setError(data.error || "Failed to request password reset.");
+                        }
+                      } catch (err: any) {
+                        setError("Password reset error: " + err.message);
+                      }
+                    }}
+                    className="text-[11px] font-semibold text-green-700 hover:text-green-800 hover:underline cursor-pointer"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
                 <div className="relative">
                   <Lock className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
                   <input

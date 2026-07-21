@@ -570,15 +570,19 @@ export default function AdminSettings({
 
   // Recursive helper function for rendering multi-level hierarchies beautifully
   const renderHierarchyNode = (node: HierarchyNode, depth: number = 0): React.ReactNode => {
-    const roleColors = {
+    const roleColors: Record<string, string> = {
       "Sales Director": "bg-purple-100 border-purple-200 text-purple-900",
       "Regional Manager": "bg-blue-100 border-blue-200 text-blue-900",
+      "Area Manager": "bg-sky-100 border-sky-200 text-sky-900",
       "Salesperson": "bg-emerald-100 border-emerald-200 text-emerald-900",
+      "Content Team": "bg-indigo-100 border-indigo-200 text-indigo-900",
+      "Finance Manager": "bg-amber-100 border-amber-200 text-amber-900",
+      "Finance Executive": "bg-yellow-100 border-yellow-200 text-yellow-900",
       "Admin": "bg-orange-100 border-orange-200 text-orange-900"
     };
 
     const roleLabel = node.user.role;
-    const colorClass = roleColors[node.user.role satisfies keyof typeof roleColors] || "bg-gray-100 border-gray-200 text-gray-900";
+    const colorClass = roleColors[node.user.role] || "bg-gray-100 border-gray-200 text-gray-900";
     const indentClass = depth > 0 ? "pl-5 border-l-2 border-dashed border-gray-150 ml-3" : "";
 
     return (

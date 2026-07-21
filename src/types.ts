@@ -3,18 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type UserRole = "Sales Director" | "Regional Manager" | "Salesperson" | "Admin";
+export type UserRole = "Admin" | "Sales Director" | "Regional Manager" | "Area Manager" | "Salesperson" | "Content Team" | "Finance Manager" | "Finance Executive";
 
 export interface UserProfile {
   id: string;
   name: string;
   email: string;
   role: UserRole;
-  region?: string;       // For Regional Manager (e.g. "West")
-  territory?: string;    // For Salesperson (e.g. "West-1")
-  salespersonCode?: string; // For Salesperson mapping
-  managerName?: string;  // Reporting manager
-  managerId?: string;    // Reporting manager ID
+  department?: string;       // E.g. "Sales", "Agronomy", "Finance", "Operations", "HR", "Management"
+  allowedApps?: string[];    // E.g. ["salesapp", "farem", "finance", "*"]
+  region?: string;           // For Regional Manager (e.g. "West")
+  territory?: string;        // For Salesperson (e.g. "West-1")
+  salespersonCode?: string;  // Employee Code / Salesperson ID
+  mobileNumber?: string;     // Mobile Phone Number
+  managerName?: string;      // Reporting manager name
+  managerId?: string;        // Reporting manager ID
   password?: string;
   approved?: boolean;
   serverSynced?: boolean;

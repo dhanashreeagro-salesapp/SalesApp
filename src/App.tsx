@@ -1295,8 +1295,25 @@ export default function App() {
 
           <img src={dhanashreeLogo} alt="Dhanashree AgriPulse Logo" className="w-8 h-8 md:w-10 md:h-10 object-contain" referrerPolicy="no-referrer" />
           <div>
-            <h1 className="text-sm md:text-base font-bold text-gray-950 dark:text-slate-50 tracking-tight leading-none">Dhanashree AgriPulse</h1>
-            <p className="text-[9px] md:text-[10px] text-gray-500 dark:text-slate-400 font-medium mt-0.5">Enterprise Sales Intelligence Suite</p>
+            <h1 className="text-sm md:text-base font-bold text-gray-950 dark:text-slate-50 tracking-tight leading-none">Dhanashree Agro</h1>
+            <p className="text-[9px] md:text-[10px] text-gray-500 dark:text-slate-400 font-medium mt-0.5">Enterprise Operations Suite</p>
+          </div>
+
+          {/* Integrated Top-Bar App Switcher (Option B) */}
+          <div className="hidden sm:flex items-center bg-gray-100 dark:bg-slate-800 p-1 rounded-xl border border-gray-200 dark:border-slate-700 ml-3">
+            <button
+              onClick={() => {}}
+              className="px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-white dark:bg-slate-900 text-green-700 dark:text-green-400 shadow-sm"
+            >
+              📊 SalesApp (Dealers)
+            </button>
+            <button
+              onClick={() => window.open("/farem", "_blank")}
+              title="Open FaReM Field Force Application"
+              className="px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-100 transition"
+            >
+              🌾 FaReM (Farmers)
+            </button>
           </div>
         </div>
 

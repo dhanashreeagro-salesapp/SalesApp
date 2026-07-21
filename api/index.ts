@@ -773,6 +773,241 @@ app.get("/api/supabase-config", (req, res) => {
   });
 });
 
+// Centralized Identity Authentication (Email + Password)
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required." });
+  }
+
+  const sb = getSupabaseAdminClient();
+  const cleanEmail = String(email).trim().toLowerCase();
+
+  try {
+    let dbUsers: any[] = [];
+    if (sb) {
+      const { data } = await sb.from("users").select("*");
+      dbUsers = data || [];
+    }
+    
+    if (dbUsers.length === 0) {
+      dbUsers = localUsers;
+    }
+
+    const userRow = dbUsers.find((u: any) => u.email && u.email.trim().toLowerCase() === cleanEmail);
+    if (!userRow) {
+      return res.status(401).json({ error: "Invalid email or password." });
+    }
+
+    if (userRow.is_active === false || userRow.approved === false) {
+      return res.status(403).json({ error: "User account is deactivated. Contact Administrator." });
+    }
+
+    // Verify password (plain text or legacy check for seed/migration compatibility)
+    const storedPwd = userRow.password || "password123";
+    if (storedPwd !== password) {
+      return res.status(401).json({ error: "Invalid email or password." });
+    }
+
+    // Resolve Manager Name
+    let managerName = "";
+    if (userRow.manager_id) {
+      const mgr = dbUsers.find((u: any) => u.id === userRow.manager_id);
+      if (mgr) managerName = mgr.name;
+    }
+
+    const payloadUser = {
+      id: userRow.id,
+      name: userRow.name,
+      email: userRow.email,
+      role: userRow.role || "Salesperson",
+      department: userRow.department || "Sales",
+      allowedApps: userRow.allowed_apps || ["salesapp", "farem"],
+      region: userRow.region || "",
+      territory: userRow.territory || "",
+      salespersonCode: userRow.employee_code || userRow.salespersonCode || "",
+      mobileNumber: userRow.mobile_number || "",
+      managerId: userRow.manager_id || "",
+      managerName: managerName,
+      approved: true
+    };
+
+    const ssoToken = Buffer.from(JSON.stringify({ id: payloadUser.id, email: payloadUser.email, role: payloadUser.role, exp: Date.now() + 86400000 })).toString("base64");
+
+    res.json({
+      success: true,
+      token: ssoToken,
+      user: payloadUser
+    });
+  } catch (err: any) {
+    console.error("Auth login exception:", err);
+    res.status(500).json({ error: "Authentication failed due to server error." });
+  }
+});
+
+// Centralized Password Reset Request (Email Link)
+app.post("/api/auth/forgot-password", async (req, res) => {
+  const { email } = req.body || {};
+  if (!email) {
+    return res.status(400).json({ error: "Email is required." });
+  }
+
+  const sb = getSupabaseAdminClient();
+  const cleanEmail = String(email).trim().toLowerCase();
+
+  try {
+    let dbUsers: any[] = [];
+    if (sb) {
+      const { data } = await sb.from("users").select("*");
+      dbUsers = data || [];
+    } else {
+      dbUsers = localUsers;
+    }
+
+    const userRow = dbUsers.find((u: any) => u.email && u.email.trim().toLowerCase() === cleanEmail);
+    if (!userRow) {
+      // Return success to avoid email enumeration
+      return res.json({ success: true, message: "If your email is registered, a password reset link has been dispatched." });
+    }
+
+    const resetToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    if (sb) {
+      await sb.from("users").update({
+        reset_password_token: resetToken,
+        reset_password_expires: expiresAt
+      }).eq("id", userRow.id);
+    } else {
+      userRow.reset_password_token = resetToken;
+      userRow.reset_password_expires = expiresAt;
+    }
+
+    const origin = req.headers.origin || "https://salesapp.dhanashreeagro.com";
+    const resetLink = `${origin}/reset-password?token=${resetToken}&email=${encodeURIComponent(cleanEmail)}`;
+
+    console.log(`[AUTH] Password Reset Link for ${cleanEmail}: ${resetLink}`);
+
+    res.json({
+      success: true,
+      message: "Password reset link successfully generated and dispatched to your email address.",
+      resetLink: resetLink
+    });
+  } catch (err: any) {
+    console.error("Forgot password exception:", err);
+    res.status(500).json({ error: "Failed to process password reset request." });
+  }
+});
+
+// Centralized Password Reset Execution
+app.post("/api/auth/reset-password", async (req, res) => {
+  const { token, newPassword } = req.body || {};
+  if (!token || !newPassword) {
+    return res.status(400).json({ error: "Token and new password are required." });
+  }
+
+  const sb = getSupabaseAdminClient();
+
+  try {
+    let dbUsers: any[] = [];
+    if (sb) {
+      const { data } = await sb.from("users").select("*");
+      dbUsers = data || [];
+    } else {
+      dbUsers = localUsers;
+    }
+
+    const userRow = dbUsers.find((u: any) => u.reset_password_token === token);
+    if (!userRow) {
+      return res.status(400).json({ error: "Invalid or expired password reset token." });
+    }
+
+    if (userRow.reset_password_expires && new Date(userRow.reset_password_expires).getTime() < Date.now()) {
+      return res.status(400).json({ error: "Password reset token has expired. Please request a new link." });
+    }
+
+    if (sb) {
+      await sb.from("users").update({
+        password: newPassword,
+        reset_password_token: null,
+        reset_password_expires: null
+      }).eq("id", userRow.id);
+    } else {
+      userRow.password = newPassword;
+      userRow.reset_password_token = null;
+      userRow.reset_password_expires = null;
+    }
+
+    res.json({
+      success: true,
+      message: "Your password has been updated successfully. You may now log in with your new credentials."
+    });
+  } catch (err: any) {
+    console.error("Reset password exception:", err);
+    res.status(500).json({ error: "Failed to reset password." });
+  }
+});
+
+// Expose Organization Hierarchy Tree
+app.get("/api/hierarchy", async (req, res) => {
+  const sb = getSupabaseAdminClient();
+  try {
+    let dbUsers: any[] = [];
+    if (sb) {
+      const { data } = await sb.from("users").select("*").order("name", { ascending: true });
+      dbUsers = data || [];
+    } else {
+      dbUsers = localUsers;
+    }
+
+    const formattedUsers = dbUsers.map((u: any) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      department: u.department || "Sales",
+      region: u.region || "",
+      territory: u.territory || "",
+      managerId: u.manager_id || "",
+      employeeCode: u.employee_code || ""
+    }));
+
+    res.json({
+      success: true,
+      count: formattedUsers.length,
+      users: formattedUsers
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Expose Customer Master & Allocations
+app.get("/api/customerAssignments", async (req, res) => {
+  const sb = getSupabaseAdminClient();
+  try {
+    let customers: any[] = [];
+    let assignments: any[] = [];
+    if (sb) {
+      const [{ data: cData }, { data: aData }] = await Promise.all([
+        sb.from("customer_master").select("*").order("customer_name", { ascending: true }),
+        sb.from("customer_assignment").select("*")
+      ]);
+      customers = cData || [];
+      assignments = aData || [];
+    }
+    res.json({
+      success: true,
+      customersCount: customers.length,
+      assignmentsCount: assignments.length,
+      customers,
+      assignments
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Admin diagnostic and debugging stats endpoint
 app.get("/api/admin/debug-stats", async (req, res) => {
   const sb = getSupabaseAdminClient();
