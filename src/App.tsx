@@ -40,6 +40,7 @@ import InvoiceLedger from "./components/InvoiceLedger";
 import BudgetLedger from "./components/BudgetLedger";
 import AuditLogsView from "./components/AuditLogsView";
 import MySalesDesk from "./components/MySalesDesk";
+import FaReMFieldForcePortal from "./components/FaReMFieldForcePortal";
 import dhanashreeLogo from "./assets/images/dhanashree_logo_1779970374585.png";
 import { 
   isSupabaseConfigured, 
@@ -192,7 +193,9 @@ export default function App() {
   } | null>(null);
 
   const [selectedUser, setSelectedUser] = useState<UserProfile>(SEED_USERS[0]); // Default to Sales Director
+  const [currentUser, setCurrentUser] = useState<UserProfile>(SEED_USERS[0]); // Logged-in User
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [activePortal, setActivePortal] = useState<"salesapp" | "farem">("salesapp");
   const [activeTab, setActiveTab ] = useState<"executive" | "upload" | "scheduler" | "advisor" | "admin" | "ledger" | "audit" | "budget-ledger" | "commandDesk">("executive");
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -584,8 +587,10 @@ export default function App() {
 
   const handleLoginSuccess = (user: UserProfile) => {
     setSelectedUser(user);
+    setCurrentUser(user);
     setIsAuthenticated(true);
     setActiveTab("executive");
+    setActivePortal("salesapp");
     safeSetLocalStorage("agroSalesSession", JSON.stringify(user));
   };
 
@@ -1302,62 +1307,36 @@ export default function App() {
           {/* Integrated Top-Bar App Switcher (Option B) */}
           <div className="hidden sm:flex items-center bg-gray-100 dark:bg-slate-800 p-1 rounded-xl border border-gray-200 dark:border-slate-700 ml-3">
             <button
-              onClick={() => {}}
-              className="px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-white dark:bg-slate-900 text-green-700 dark:text-green-400 shadow-sm"
+              onClick={() => setActivePortal("salesapp")}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                activePortal === "salesapp"
+                  ? "bg-white dark:bg-slate-900 text-green-700 dark:text-green-400 shadow-sm font-bold"
+                  : "text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-100"
+              }`}
             >
               📊 SalesApp (Dealers)
             </button>
             <button
-              onClick={() => window.open("/farem", "_blank")}
-              title="Open FaReM Field Force Application"
-              className="px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-100 transition"
+              onClick={() => setActivePortal("farem")}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                activePortal === "farem"
+                  ? "bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm font-bold"
+                  : "text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-100"
+              }`}
             >
               🌾 FaReM (Farmers)
             </button>
           </div>
         </div>
 
-        {/* Dynamic Logged-in Persona Swapper Panel */}
+        {/* Static Authenticated User Profile Badge (Persona Swapper Disabled per user request) */}
         <div className="flex items-center gap-1.5 md:gap-4">
-          <div className="relative">
-            <button
-              onClick={() => setShowPersonaDropdown(!showPersonaDropdown)}
-              className="flex items-center gap-1.5 md:gap-2.5 bg-gray-50 border border-gray-200 dark:bg-slate-800 dark:border-slate-700 hover:bg-gray-100/80 dark:hover:bg-slate-700 px-3 py-1.5 md:px-4 md:py-2 rounded-xl text-xs text-left transition focus:outline-none"
-            >
-              <div>
-                <div className="text-[8px] md:text-[10px] uppercase font-semibold tracking-wider text-gray-400">Viewing Role Scope</div>
-                <div className="font-bold text-gray-900 dark:text-slate-100 flex items-center gap-1 mt-0.5 text-[10px] md:text-xs">
-                  <span className="truncate max-w-[80px] md:max-w-none">{selectedUser.name}</span>
-                  <ChevronDown className="w-3 md:w-3.5 h-3 md:h-3.5 text-gray-500" />
-                </div>
-              </div>
-            </button>
-
-            {showPersonaDropdown && (
-              <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-xl shadow-xl z-50 p-2 space-y-1">
-                <div className="px-3 py-1.5 text-[10px] text-gray-450 uppercase font-semibold">Switch Persona (Interactive RLS testing)</div>
-                {users.map((u) => (
-                  <button
-                    key={u.id}
-                    onClick={() => {
-                      setSelectedUser(u);
-                      setShowPersonaDropdown(false);
-                      // Clear filters on role switch to avoid empty states
-                      setActiveFilters({ company: "All", rm: "All", category: "All", searchQuery: "" });
-                    }}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium flex items-center justify-between transition ${
-                      selectedUser.id === u.id ? "bg-green-50 dark:bg-green-950/50 text-green-700 dark:text-green-400 font-bold" : "text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800/50"
-                    }`}
-                  >
-                    <div>
-                      <div>{u.name}</div>
-                      <div className="text-[9px] text-gray-450 font-normal">{u.role} {u.region ? `• ${u.region}` : ""} {u.territory ? `• ${u.territory}` : ""}</div>
-                    </div>
-                    {selectedUser.id === u.id && <span className="w-1.5 h-1.5 bg-green-600 rounded-full" />}
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="bg-gray-50 border border-gray-200 dark:bg-slate-800 dark:border-slate-700 px-3 py-1.5 md:px-4 md:py-2 rounded-xl text-xs text-left">
+            <div className="text-[8px] md:text-[10px] uppercase font-semibold tracking-wider text-gray-400">Authenticated User</div>
+            <div className="font-bold text-gray-900 dark:text-slate-100 flex items-center gap-1.5 mt-0.5 text-[10px] md:text-xs">
+              <span className="truncate max-w-[120px] md:max-w-none">{currentUser.name || selectedUser.name}</span>
+              <span className="text-[9px] px-1.5 py-0.2 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 rounded font-extrabold">{currentUser.role || selectedUser.role}</span>
+            </div>
           </div>
 
           {/* Theme Mode Toggler */}
@@ -1606,92 +1585,98 @@ export default function App() {
             </div>
           )}
           
-          {/* Active component switch */}
-          {activeTab === "executive" && (
-            <ExecutiveDashboard
-              analytics={analyticsToRender}
-              onFilterChange={handleFilterUpdate}
-              currentUser={selectedUser}
-              scopedInvoices={currentUserInvoices}
-              users={users}
-              budgets={budgets}
-            />
-          )}
+          {/* Active portal/component switch */}
+          {activePortal === "farem" ? (
+            <FaReMFieldForcePortal currentUser={selectedUser} users={users} />
+          ) : (
+            <>
+              {activeTab === "executive" && (
+                <ExecutiveDashboard
+                  analytics={analyticsToRender}
+                  onFilterChange={handleFilterUpdate}
+                  currentUser={selectedUser}
+                  scopedInvoices={currentUserInvoices}
+                  users={users}
+                  budgets={budgets}
+                />
+              )}
 
-          {activeTab === "commandDesk" && (
-            <MySalesDesk
-              currentUser={selectedUser}
-              scopedInvoices={currentUserInvoices}
-              users={users}
-            />
-          )}
+              {activeTab === "commandDesk" && (
+                <MySalesDesk
+                  currentUser={selectedUser}
+                  scopedInvoices={currentUserInvoices}
+                  users={users}
+                />
+              )}
 
-          {activeTab === "upload" && selectedUser && selectedUser.role === "Admin" && (
-            <UploadCenter
-              onDataUploaded={handleUploadedFiles}
-              onSaveUsersBulk={handleSaveUsersBulk}
-              currentUser={selectedUser}
-              existingInvoicesCount={invoices.length}
-              existingBudgetsCount={budgets.length}
-              onResetDatabase={handleResetDatabase}
-              isSyncing={isSyncing}
-              existingInvoices={invoices}
-              users={users}
-            />
-          )}
+              {activeTab === "upload" && selectedUser && selectedUser.role === "Admin" && (
+                <UploadCenter
+                  onDataUploaded={handleUploadedFiles}
+                  onSaveUsersBulk={handleSaveUsersBulk}
+                  currentUser={selectedUser}
+                  existingInvoicesCount={invoices.length}
+                  existingBudgetsCount={budgets.length}
+                  onResetDatabase={handleResetDatabase}
+                  isSyncing={isSyncing}
+                  existingInvoices={invoices}
+                  users={users}
+                />
+              )}
 
-          {activeTab === "advisor" && (
-            <AiAssistant
-              currentUser={selectedUser}
-              analytics={analyticsToRender}
-            />
-          )}
+              {activeTab === "advisor" && (
+                <AiAssistant
+                  currentUser={selectedUser}
+                  analytics={analyticsToRender}
+                />
+              )}
 
-          {activeTab === "scheduler" && (
-            <EmailScheduler
-              emailLogs={emailLogs}
-              onTriggerSimulate={triggerCampaignSimulation}
-              currentUser={selectedUser}
-              isSimulating={isSimulating}
-              analytics={analyticsToRender}
-            />
-          )}
+              {activeTab === "scheduler" && (
+                <EmailScheduler
+                  emailLogs={emailLogs}
+                  onTriggerSimulate={triggerCampaignSimulation}
+                  currentUser={selectedUser}
+                  isSimulating={isSimulating}
+                  analytics={analyticsToRender}
+                />
+              )}
 
-          {activeTab === "admin" && selectedUser && selectedUser.role === "Admin" && (
-            <AdminSettings
-              auditLogs={auditLogs}
-              onResetDatabase={handleResetDatabase}
-              onUndoDatabaseImport={handleUndoDatabaseImport}
-              onClearDatabaseInvoices={handleClearDatabaseInvoices}
-              onClearDatabaseBudgets={handleClearDatabaseBudgets}
-              currentUser={selectedUser}
-              users={users}
-              onSaveUser={handleSaveUser}
-              onSaveUsersBulk={handleSaveUsersBulk}
-              onDeleteUser={handleDeleteUser}
-              invoices={invoices}
-              customers={customers}
-              assignments={assignments}
-              assignmentAuditLogs={assignmentAuditLogs}
-              onSaveCustomer={handleSaveCustomerMaster}
-              onSaveAssignments={handleSaveCustomerAssignments}
-            />
-          )}
+              {activeTab === "admin" && selectedUser && selectedUser.role === "Admin" && (
+                <AdminSettings
+                  auditLogs={auditLogs}
+                  onResetDatabase={handleResetDatabase}
+                  onUndoDatabaseImport={handleUndoDatabaseImport}
+                  onClearDatabaseInvoices={handleClearDatabaseInvoices}
+                  onClearDatabaseBudgets={handleClearDatabaseBudgets}
+                  currentUser={selectedUser}
+                  users={users}
+                  onSaveUser={handleSaveUser}
+                  onSaveUsersBulk={handleSaveUsersBulk}
+                  onDeleteUser={handleDeleteUser}
+                  invoices={invoices}
+                  customers={customers}
+                  assignments={assignments}
+                  assignmentAuditLogs={assignmentAuditLogs}
+                  onSaveCustomer={handleSaveCustomerMaster}
+                  onSaveAssignments={handleSaveCustomerAssignments}
+                />
+              )}
 
-          {activeTab === "ledger" && selectedUser && selectedUser.role === "Admin" && (
-            <InvoiceLedger invoices={invoices} />
-          )}
+              {activeTab === "ledger" && selectedUser && selectedUser.role === "Admin" && (
+                <InvoiceLedger invoices={invoices} />
+              )}
 
-          {activeTab === "budget-ledger" && selectedUser && selectedUser.role === "Admin" && (
-            <BudgetLedger budgets={budgets} onUpdateBudgets={handleSaveBudgets} />
-          )}
+              {activeTab === "budget-ledger" && selectedUser && selectedUser.role === "Admin" && (
+                <BudgetLedger budgets={budgets} onUpdateBudgets={handleSaveBudgets} />
+              )}
 
-          {activeTab === "audit" && selectedUser && selectedUser.role === "Admin" && (
-            <AuditLogsView 
-              auditLogs={auditLogs} 
-              onResetDatabase={handleResetDatabase} 
-              currentUser={selectedUser} 
-            />
+              {activeTab === "audit" && selectedUser && selectedUser.role === "Admin" && (
+                <AuditLogsView 
+                  auditLogs={auditLogs} 
+                  onResetDatabase={handleResetDatabase} 
+                  currentUser={selectedUser} 
+                />
+              )}
+            </>
           )}
 
         </main>
