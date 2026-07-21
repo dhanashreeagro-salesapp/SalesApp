@@ -7,7 +7,7 @@ import React, { useState, useRef } from "react";
 import * as XLSX from "xlsx";
 import { Upload, FileText, CheckCircle2, AlertTriangle, CloudRain, ShieldCheck, Database, RefreshCw, AlertCircle, Lock, Target, Users } from "lucide-react";
 import { InvoiceItem, BudgetItem, UserProfile } from "../types";
-import { getSupabase, uploadExcelToStorage } from "../lib/supabaseClient";
+import { getSupabase, uploadExcelToStorage, alignOrphanInvoicesOnSupabase } from "../lib/supabaseClient";
 import { isFuzzyNameMatch } from "../utils/analytics";
 
 function getStandardizedValue(value: string, category: "customer" | "product"): string {
@@ -237,18 +237,16 @@ export default function UploadCenter({
           } else {
             seenInFile.add(key);
             
-            const spName = (inv.salesperson || "").trim().toLowerCase();
+            const spName = (inv.salesperson || "").trim();
             const matchedUser = (users || []).find(u => 
-              u.serverSynced === true &&
-              ((u.name && u.name.trim().toLowerCase() === spName) ||
-               (u.email && u.email.trim().toLowerCase() === spName))
+              (u.name && isFuzzyNameMatch(u.name, spName)) ||
+              (u.email && isFuzzyNameMatch(u.email, spName))
             );
             
-            // Select a real logged-in or seeded salesperson UUID as a fallback to avoid NULLs
-            const sPersons = (users || []).filter(u => u.serverSynced === true && u.role === "Salesperson" && u.id && u.id.includes("-"));
-            const defaultSpId = sPersons.length > 0 ? sPersons[0].id : null;
+            const adminUser = (users || []).find(u => u.role === "Admin" || u.role === "Sales Director") || (users || [])[0];
+            const defaultSpId = adminUser ? adminUser.id : null;
             
-            const salesperson_id = (matchedUser && matchedUser.id && matchedUser.id.includes("-")) 
+            const salesperson_id = (matchedUser && matchedUser.id) 
               ? matchedUser.id 
               : defaultSpId;
 
@@ -440,6 +438,18 @@ export default function UploadCenter({
             } else {
               addLog(`[Audit] Row failure traceback logged.`);
             }
+          }
+        }
+
+        if (insertedCountAcc > 0) {
+          addLog(`[Post-Upload Alignment] Running automatic salesperson ID alignment sweep...`);
+          try {
+            const alignRes = await alignOrphanInvoicesOnSupabase();
+            if (alignRes?.success) {
+              addLog(`[Post-Upload Alignment Success] Aligned ${alignRes.fixedCount || 0} salesperson IDs.`);
+            }
+          } catch (aErr: any) {
+            console.warn("Post-upload alignment sweep notice:", aErr);
           }
         }
 

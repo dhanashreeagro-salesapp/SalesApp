@@ -408,36 +408,72 @@ export async function insertSalesDataChunks(invoices: InvoiceItem[]): Promise<bo
   const sb = getSupabase();
   if (!sb) return false;
 
-  const rows = invoices.map(i => ({
-    id: i.id || undefined,
-    invoice_date: i.invoiceDate,
-    invoice_number: i.invoiceNumber,
-    company: i.company,
-    customer_name: i.customerName,
-    customer_code: i.customerCode,
-    region: i.region,
-    territory: i.territory,
-    salesperson: i.salesperson,
-    regional_manager: i.regionalManager,
-    product_name: i.productName,
-    product_category: i.productCategory,
-    supplier: i.supplier,
-    quantity: i.quantity,
-    unit: i.unit,
-    rate: i.rate,
-    gross_value: i.grossValue,
-    discount: i.discount,
-    net_value: i.netSalesValue
-  }));
+  // Fetch users list to resolve salesperson_id and manager_id
+  const { data: dbUsers } = await sb.from("users").select("id, name, email, role, region, territory, manager_id");
+  const usersList = dbUsers || [];
+  const defaultAdmin = usersList.find(u => u.role === "Admin" || u.role === "Sales Director") || usersList[0];
 
-  const { error } = await sb
-    .from("sales_data")
-    .insert(rows);
+  const isFuzzyMatch = (str1: string, str2: string): boolean => {
+    if (!str1 || !str2) return false;
+    const clean1 = str1.toLowerCase().replace(/[\s\-_.,()]/g, "");
+    const clean2 = str2.toLowerCase().replace(/[\s\-_.,()]/g, "");
+    return clean1 === clean2 || clean1.includes(clean2) || clean2.includes(clean1);
+  };
 
-  if (error) {
-    console.error("Error inserting sales data into Supabase:", error);
-    return false;
+  const rows = invoices.map(i => {
+    const spName = (i.salesperson || "").trim();
+    const rmName = (i.regionalManager || "").trim();
+
+    let matchedUser = usersList.find(u =>
+      (u.name && isFuzzyMatch(u.name, spName)) ||
+      (u.email && isFuzzyMatch(u.email, spName))
+    );
+
+    if (!matchedUser && rmName) {
+      matchedUser = usersList.find(u =>
+        (u.name && isFuzzyMatch(u.name, rmName)) ||
+        (u.email && isFuzzyMatch(u.email, rmName))
+      );
+    }
+
+    const salesperson_id = matchedUser ? matchedUser.id : (defaultAdmin ? defaultAdmin.id : null);
+    const manager_id = matchedUser ? (matchedUser.manager_id || defaultAdmin?.id || null) : (defaultAdmin ? defaultAdmin.id : null);
+
+    return {
+      id: i.id || undefined,
+      invoice_date: i.invoiceDate,
+      invoice_number: i.invoiceNumber,
+      company: i.company,
+      customer_name: i.customerName,
+      customer_code: i.customerCode,
+      region: i.region,
+      territory: i.territory,
+      salesperson: i.salesperson,
+      salesperson_id: salesperson_id,
+      manager_id: manager_id,
+      regional_manager: i.regionalManager,
+      product_name: i.productName,
+      product_category: i.productCategory,
+      supplier: i.supplier,
+      quantity: i.quantity,
+      unit: i.unit,
+      rate: i.rate,
+      gross_value: i.grossValue,
+      discount: i.discount,
+      net_value: i.netSalesValue
+    };
+  });
+
+  const chunkSize = 500;
+  for (let idx = 0; idx < rows.length; idx += chunkSize) {
+    const chunk = rows.slice(idx, idx + chunkSize);
+    const { error } = await sb.from("sales_data").insert(chunk);
+    if (error) {
+      console.error("Error inserting sales data chunk into Supabase:", error);
+      return false;
+    }
   }
+
   return true;
 }
 

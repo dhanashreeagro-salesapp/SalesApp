@@ -1411,8 +1411,43 @@ app.post("/api/db/import", async (req, res) => {
       const idsToDelete: string[] = [];
       const invoicesToInsert: any[] = [];
 
+      const { data: dbUsers } = await sb.from("users").select("id, name, email, role, manager_id");
+      const usersList = (dbUsers && dbUsers.length > 0) ? dbUsers : localUsers;
+      const defaultAdmin = usersList.find((u: any) => u.role === "Admin" || u.role === "Sales Director") || usersList[0];
+
+      const isFuzzyMatch = (str1: string, str2: string): boolean => {
+        if (!str1 || !str2) return false;
+        const clean1 = str1.toLowerCase().replace(/[\s\-_.,()]/g, "");
+        const clean2 = str2.toLowerCase().replace(/[\s\-_.,()]/g, "");
+        return clean1 === clean2 || clean1.includes(clean2) || clean2.includes(clean1);
+      };
+
+      const resolveRowIds = (inv: any) => {
+        const spName = (inv.salesperson || "").trim();
+        const rmName = (inv.regionalManager || "").trim();
+
+        let matchedUser = usersList.find((u: any) =>
+          (u.name && isFuzzyMatch(u.name, spName)) ||
+          (u.email && isFuzzyMatch(u.email, spName))
+        );
+
+        if (!matchedUser && rmName) {
+          matchedUser = usersList.find((u: any) =>
+            (u.name && isFuzzyMatch(u.name, rmName)) ||
+            (u.email && isFuzzyMatch(u.email, rmName))
+          );
+        }
+
+        const salesperson_id = matchedUser ? matchedUser.id : (defaultAdmin ? defaultAdmin.id : null);
+        const manager_id = matchedUser ? (matchedUser.manager_id || defaultAdmin?.id || null) : (defaultAdmin ? defaultAdmin.id : null);
+
+        return { salesperson_id, manager_id };
+      };
+
       newInvoices.forEach((inv, index) => {
         const key = makeCompositeKey(inv);
+        const { salesperson_id, manager_id } = resolveRowIds(inv);
+
         if (existingMap.has(key)) {
           duplicateRows++;
           if (duplicateAction === "replace") {
@@ -1427,6 +1462,8 @@ app.post("/api/db/import", async (req, res) => {
               region: inv.region,
               territory: inv.territory,
               salesperson: inv.salesperson,
+              salesperson_id,
+              manager_id,
               regional_manager: inv.regionalManager,
               product_name: inv.productName,
               product_category: inv.productCategory,
@@ -1452,6 +1489,8 @@ app.post("/api/db/import", async (req, res) => {
             region: inv.region,
             territory: inv.territory,
             salesperson: inv.salesperson,
+            salesperson_id,
+            manager_id,
             regional_manager: inv.regionalManager,
             product_name: inv.productName,
             product_category: inv.productCategory,
