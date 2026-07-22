@@ -25,6 +25,8 @@ import {
   Terminal,
   Target,
   AlertTriangle,
+  Send,
+  BookOpen,
   X
 } from "lucide-react";
 import { InvoiceItem, BudgetItem, UserProfile, AuditLog, EmailLog, CustomerMaster, CustomerAssignment, AssignmentAuditLog } from "./types";
@@ -196,6 +198,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile>(SEED_USERS[0]); // Logged-in User
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [activePortal, setActivePortal] = useState<"salesapp" | "farem">("salesapp");
+  const [activeFaremTab, setActiveFaremTab] = useState<"dashboard" | "farmers" | "planner" | "advisory" | "promotions">("dashboard");
   const [activeTab, setActiveTab ] = useState<"executive" | "upload" | "scheduler" | "advisor" | "admin" | "ledger" | "audit" | "budget-ledger" | "commandDesk">("executive");
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -1393,108 +1396,165 @@ export default function App() {
 
           {/* Nav menu links list */}
           <div className="space-y-1">
-            <span className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest block px-3 mb-2">Platform Navigation</span>
-            
-            <button
-              onClick={() => { setActiveTab("executive"); setIsMobileSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition ${
-                activeTab === "executive" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
-              }`}
-            >
-              <TrendingUp className="w-4 h-4 shrink-0" />
-              Executive Dashboard
-            </button>
-
-            <button
-              onClick={() => { setActiveTab("advisor"); setIsMobileSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition ${
-                activeTab === "advisor" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
-              }`}
-            >
-              <Sparkles className="w-4 h-4 shrink-0" />
-              AI Insights Assistant
-            </button>
-
-            <button
-              onClick={() => { setActiveTab("commandDesk"); setIsMobileSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition ${
-                activeTab === "commandDesk" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
-              }`}
-            >
-              <Users className="w-4 h-4 shrink-0" />
-              My Sales Desk
-            </button>
-
-            {selectedUser && selectedUser.role === "Admin" && (
-              <button
-                onClick={() => { setActiveTab("upload"); setIsMobileSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition ${
-                  activeTab === "upload" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
-                }`}
-              >
-                <Upload className="w-4 h-4 shrink-0" />
-                Excel Upload Center
-              </button>
-            )}
-
-            {selectedUser && selectedUser.role === "Admin" && (
+            {activePortal === "farem" ? (
               <>
-
+                <span className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest block px-3 mb-2">FaReM Field Force</span>
+                
                 <button
-                  id="nav-invoice-ledger"
-                  onClick={() => { setActiveTab("ledger"); setIsMobileSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition ${
-                    activeTab === "ledger" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                  onClick={() => { setActiveFaremTab("dashboard"); setIsMobileSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                    activeFaremTab === "dashboard" ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-750 dark:text-emerald-400 font-bold font-sans" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
                   }`}
                 >
-                  <FileText className="w-4 h-4 shrink-0" />
-                  Invoice Ledger
+                  <TrendingUp className="w-4 h-4 text-emerald-650 shrink-0" />
+                  Dashboard & Reports
                 </button>
 
                 <button
-                  id="nav-budget-ledger"
-                  onClick={() => { setActiveTab("budget-ledger"); setIsMobileSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition ${
-                    activeTab === "budget-ledger" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                  onClick={() => { setActiveFaremTab("farmers"); setIsMobileSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                    activeFaremTab === "farmers" ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-750 dark:text-emerald-400 font-bold font-sans" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
                   }`}
                 >
-                  <Target className="w-4 h-4 shrink-0" />
-                  Budget Target Ledger
+                  <Users className="w-4 h-4 text-emerald-650 shrink-0" />
+                  Farmer Management
                 </button>
 
                 <button
-                  id="nav-audit-logs"
-                  onClick={() => { setActiveTab("audit"); setIsMobileSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition ${
-                    activeTab === "audit" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                  onClick={() => { setActiveFaremTab("planner"); setIsMobileSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                    activeFaremTab === "planner" ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-750 dark:text-emerald-400 font-bold font-sans" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
                   }`}
                 >
-                  <Terminal className="w-4 h-4 shrink-0" />
-                  Audit Logs
+                  <Calendar className="w-4 h-4 text-emerald-650 shrink-0" />
+                  Smart Visit Planner
+                </button>
+
+                <button
+                  onClick={() => { setActiveFaremTab("advisory"); setIsMobileSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                    activeFaremTab === "advisory" ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-750 dark:text-emerald-400 font-bold font-sans" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                  }`}
+                >
+                  <Send className="w-4 h-4 text-emerald-650 shrink-0" />
+                  Advisory & Recommendations
+                </button>
+
+                <button
+                  onClick={() => { setActiveFaremTab("promotions"); setIsMobileSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                    activeFaremTab === "promotions" ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-750 dark:text-emerald-400 font-bold font-sans" : "text-gray-600 dark:text-slate-355 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                  }`}
+                >
+                  <BookOpen className="w-4 h-4 text-emerald-650 shrink-0" />
+                  Promotions Management
                 </button>
               </>
-            )}
+            ) : (
+              <>
+                <span className="text-[9px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest block px-3 mb-2">Platform Navigation</span>
+                
+                <button
+                  onClick={() => { setActiveTab("executive"); setIsMobileSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                    activeTab === "executive" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                  }`}
+                >
+                  <TrendingUp className="w-4 h-4 shrink-0" />
+                  Executive Dashboard
+                </button>
 
-            <button
-              onClick={() => { setActiveTab("scheduler"); setIsMobileSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition ${
-                activeTab === "scheduler" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
-              }`}
-            >
-              <Calendar className="w-4 h-4 shrink-0" />
-              Campaign Scheduler
-            </button>
+                <button
+                  onClick={() => { setActiveTab("advisor"); setIsMobileSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                    activeTab === "advisor" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                  }`}
+                >
+                  <Sparkles className="w-4 h-4 shrink-0" />
+                  AI Insights Assistant
+                </button>
 
-            {selectedUser && selectedUser.role === "Admin" && (
-              <button
-                onClick={() => { setActiveTab("admin"); setIsMobileSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition ${
-                  activeTab === "admin" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
-                }`}
-              >
-                <Settings className="w-4 h-4 shrink-0" />
-                Platform Settings
-              </button>
+                <button
+                  onClick={() => { setActiveTab("commandDesk"); setIsMobileSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                    activeTab === "commandDesk" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                  }`}
+                >
+                  <Users className="w-4 h-4 shrink-0" />
+                  My Sales Desk
+                </button>
+
+                {selectedUser && selectedUser.role === "Admin" && (
+                  <button
+                    onClick={() => { setActiveTab("upload"); setIsMobileSidebarOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                      activeTab === "upload" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                    }`}
+                  >
+                    <Upload className="w-4 h-4 shrink-0" />
+                    Excel Upload Center
+                  </button>
+                )}
+
+                {selectedUser && selectedUser.role === "Admin" && (
+                  <>
+                    <button
+                      id="nav-invoice-ledger"
+                      onClick={() => { setActiveTab("ledger"); setIsMobileSidebarOpen(false); }}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                        activeTab === "ledger" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                      }`}
+                    >
+                      <FileText className="w-4 h-4 shrink-0" />
+                      Invoice Ledger
+                    </button>
+
+                    <button
+                      id="nav-budget-ledger"
+                      onClick={() => { setActiveTab("budget-ledger"); setIsMobileSidebarOpen(false); }}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                        activeTab === "budget-ledger" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                      }`}
+                    >
+                      <Target className="w-4 h-4 shrink-0" />
+                      Budget Target Ledger
+                    </button>
+
+                    <button
+                      id="nav-audit-logs"
+                      onClick={() => { setActiveTab("audit"); setIsMobileSidebarOpen(false); }}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                        activeTab === "audit" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                      }`}
+                    >
+                      <Terminal className="w-4 h-4 shrink-0" />
+                      Audit Logs
+                    </button>
+                  </>
+                )}
+
+                <button
+                  onClick={() => { setActiveTab("scheduler"); setIsMobileSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                    activeTab === "scheduler" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                  }`}
+                >
+                  <Calendar className="w-4 h-4 shrink-0" />
+                  Campaign Scheduler
+                </button>
+
+                {selectedUser && selectedUser.role === "Admin" && (
+                  <button
+                    onClick={() => { setActiveTab("admin"); setIsMobileSidebarOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl text-left transition cursor-pointer ${
+                      activeTab === "admin" ? "bg-green-50 dark:bg-green-950/40 text-green-750 dark:text-green-400 font-bold" : "text-gray-600 dark:text-slate-350 hover:bg-gray-50 dark:hover:bg-slate-800/40 hover:text-gray-900 dark:hover:text-slate-100"
+                    }`}
+                  >
+                    <Settings className="w-4 h-4 shrink-0" />
+                    Platform Settings
+                  </button>
+                )}
+              </>
             )}
           </div>
 
@@ -1587,7 +1647,7 @@ export default function App() {
           
           {/* Active portal/component switch */}
           {activePortal === "farem" ? (
-            <FaReMFieldForcePortal currentUser={selectedUser} users={users} />
+            <FaReMFieldForcePortal currentUser={selectedUser} users={users} activeFaremTab={activeFaremTab} />
           ) : (
             <>
               {activeTab === "executive" && (

@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from "react";
-import { Users, MapPin, Sprout, Calendar, Phone, FileText, Send, Search, Filter, ShieldCheck, CheckCircle2, Plus, Share2, BookOpen, AlertCircle } from "lucide-react";
+import { Users, MapPin, Sprout, Calendar, Phone, FileText, Send, Search, Filter, ShieldCheck, CheckCircle2, Plus, Share2, BookOpen, AlertCircle, BarChart3, Award, FileSpreadsheet } from "lucide-react";
 import { UserProfile } from "../types";
 import { getUserDescendantsList } from "../utils/analytics";
 
 interface FaReMProps {
   currentUser: UserProfile;
   users: UserProfile[];
+  activeFaremTab: "dashboard" | "farmers" | "planner" | "advisory" | "promotions";
 }
 
 export interface FarmerRecord {
@@ -123,8 +124,7 @@ const SEED_PROMOTIONS: PromotionItem[] = [
   }
 ];
 
-export default function FaReMFieldForcePortal({ currentUser, users }: FaReMProps) {
-  const [activeTab, setActiveTab] = useState<"farmers" | "visits" | "recommendations" | "promotions">("farmers");
+export default function FaReMFieldForcePortal({ currentUser, users, activeFaremTab }: FaReMProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFarmer, setSelectedFarmer] = useState<FarmerRecord | null>(null);
   const [newRecommendation, setNewRecommendation] = useState({ product: "Erbato", dose: "2 ml/Liter", notes: "" });
@@ -156,6 +156,10 @@ export default function FaReMFieldForcePortal({ currentUser, users }: FaReMProps
     );
   }, [scopedFarmers, searchQuery]);
 
+  const totalAcreage = useMemo(() => {
+    return scopedFarmers.reduce((sum, f) => sum + f.acres, 0);
+  }, [scopedFarmers]);
+
   const canManagePromotions = currentUser.role === "Admin" || currentUser.role === "Content Team";
 
   return (
@@ -176,52 +180,122 @@ export default function FaReMFieldForcePortal({ currentUser, users }: FaReMProps
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 dark:border-slate-800 pb-3">
-        <button
-          onClick={() => setActiveTab("farmers")}
-          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
-            activeTab === "farmers"
-              ? "bg-emerald-600 text-white shadow-md"
-              : "bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300 hover:bg-gray-200"
-          }`}
-        >
-          <Users className="w-4 h-4" /> Farmers Portfolio ({filteredFarmers.length})
-        </button>
-        <button
-          onClick={() => setActiveTab("visits")}
-          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
-            activeTab === "visits"
-              ? "bg-emerald-600 text-white shadow-md"
-              : "bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300 hover:bg-gray-200"
-          }`}
-        >
-          <Calendar className="w-4 h-4" /> Visit & Call Register
-        </button>
-        <button
-          onClick={() => setActiveTab("recommendations")}
-          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
-            activeTab === "recommendations"
-              ? "bg-emerald-600 text-white shadow-md"
-              : "bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300 hover:bg-gray-200"
-          }`}
-        >
-          <Send className="w-4 h-4" /> Product Advisory
-        </button>
-        <button
-          onClick={() => setActiveTab("promotions")}
-          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
-            activeTab === "promotions"
-              ? "bg-emerald-600 text-white shadow-md"
-              : "bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300 hover:bg-gray-200"
-          }`}
-        >
-          <BookOpen className="w-4 h-4" /> Promotion Library {!canManagePromotions && "(Read-Only)"}
-        </button>
-      </div>
+      {/* Tab Content: Dashboard & Reports */}
+      {activeFaremTab === "dashboard" && (
+        <div className="space-y-6">
+          {/* Key Metrics Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs space-y-2">
+              <span className="text-[10px] uppercase font-bold text-gray-400">Total Registered Farmers</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-gray-900 dark:text-slate-100">{scopedFarmers.length}</span>
+                <span className="text-xs text-green-600 font-bold">Growers</span>
+              </div>
+              <div className="text-[10px] text-gray-450">Scoped for {currentUser.name}</div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs space-y-2">
+              <span className="text-[10px] uppercase font-bold text-gray-400">Geotagged Landholding</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-gray-900 dark:text-slate-100">{totalAcreage.toFixed(1)}</span>
+                <span className="text-xs text-green-600 font-bold">Acres</span>
+              </div>
+              <div className="text-[10px] text-gray-450">Active verified plots</div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs space-y-2">
+              <span className="text-[10px] uppercase font-bold text-gray-400">Field Visits Completed</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-gray-900 dark:text-slate-100">{scopedFarmers.length * 3}</span>
+                <span className="text-xs text-emerald-600 font-bold">Visits</span>
+              </div>
+              <div className="text-[10px] text-gray-450">This financial quarter</div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs space-y-2">
+              <span className="text-[10px] uppercase font-bold text-gray-400">Product Advisories Dispatched</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-gray-900 dark:text-slate-100">{scopedFarmers.length * 2}</span>
+                <span className="text-xs text-emerald-600 font-bold">Advisories</span>
+              </div>
+              <div className="text-[10px] text-gray-450">Via integrated WhatsApp API</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Crop Stage Heatmap Distribution */}
+            <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl p-6 space-y-4">
+              <h3 className="font-bold text-gray-900 dark:text-slate-100 text-sm flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-emerald-600" /> Stage-wise Crop Acreage Distribution
+              </h3>
+              <div className="space-y-4 pt-2">
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1 font-semibold text-gray-700 dark:text-slate-300">
+                    <span>🍇 Grapes (Berry Development)</span>
+                    <span>4.5 Acres (42%)</span>
+                  </div>
+                  <div className="w-full bg-gray-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div className="bg-emerald-600 h-full rounded-full" style={{ width: "42%" }}></div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1 font-semibold text-gray-700 dark:text-slate-300">
+                    <span>🍎 Pomegranate (Flowering & Fruit Set)</span>
+                    <span>6.0 Acres (56%)</span>
+                  </div>
+                  <div className="w-full bg-gray-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div className="bg-teal-600 h-full rounded-full" style={{ width: "56%" }}></div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1 font-semibold text-gray-700 dark:text-slate-300">
+                    <span>🌱 Sugarcane (Grand Growth)</span>
+                    <span>3.2 Acres (30%)</span>
+                  </div>
+                  <div className="w-full bg-gray-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div className="bg-green-600 h-full rounded-full" style={{ width: "30%" }}></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Field Staff Leaderboard */}
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl p-6 space-y-4">
+              <h3 className="font-bold text-gray-900 dark:text-slate-100 text-sm flex items-center gap-2">
+                <Award className="w-4 h-4 text-emerald-600" /> Agronomist Leaderboard
+              </h3>
+              <div className="space-y-3 pt-1">
+                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-5 h-5 bg-yellow-100 text-yellow-800 font-extrabold rounded-full flex items-center justify-center text-[10px]">1</span>
+                    <div>
+                      <div className="font-bold text-xs text-gray-800 dark:text-slate-200">Rahul Borse</div>
+                      <div className="text-[9px] text-gray-400">Salesperson • West-3</div>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-gray-950 dark:text-slate-50">14 Visits</span>
+                </div>
+
+                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-800/50 rounded-xl">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-5 h-5 bg-slate-100 text-slate-800 font-extrabold rounded-full flex items-center justify-center text-[10px]">2</span>
+                    <div>
+                      <div className="font-bold text-xs text-gray-800 dark:text-slate-200">Gajanan Tale</div>
+                      <div className="text-[9px] text-gray-400">Regional Manager • West</div>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-gray-950 dark:text-slate-50">10 Visits</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tab Content: Farmers Portfolio */}
-      {activeTab === "farmers" && (
+      {activeFaremTab === "farmers" && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-xl border border-gray-200 dark:border-slate-800 shadow-2xs">
             <div className="relative w-full sm:w-80">
@@ -275,7 +349,7 @@ export default function FaReMFieldForcePortal({ currentUser, users }: FaReMProps
                   <button
                     onClick={() => {
                       setSelectedFarmer(farmer);
-                      setActiveTab("recommendations");
+                      alert(`Advisory routing initialized for grower: ${farmer.fullName}`);
                     }}
                     className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg font-bold text-xs hover:bg-emerald-100 transition cursor-pointer flex items-center gap-1"
                   >
@@ -289,11 +363,11 @@ export default function FaReMFieldForcePortal({ currentUser, users }: FaReMProps
       )}
 
       {/* Tab Content: Visit & Call Register */}
-      {activeTab === "visits" && (
+      {activeFaremTab === "planner" && (
         <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-gray-900 dark:text-slate-100 text-sm flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-emerald-600" /> Recent Farm Visit & Phone Call Register
+              <Calendar className="w-4 h-4 text-emerald-600" /> Smart Visit Planner & Call Register
             </h3>
             <span className="text-xs text-gray-500">Auto-captured GPS timestamps</span>
           </div>
@@ -305,7 +379,7 @@ export default function FaReMFieldForcePortal({ currentUser, users }: FaReMProps
                   <div className="font-bold text-xs text-gray-900 dark:text-slate-100">{f.fullName}</div>
                   <div className="text-[11px] text-gray-500 flex items-center gap-3">
                     <span>📍 GPS Geotag Verified</span>
-                    <span>🗓️ Visit Date: {f.lastVisitDate}</span>
+                    <span>🗓&nbsp;Visit Date: {f.lastVisitDate}</span>
                     <span>👤 Advisor: {f.staffName}</span>
                   </div>
                 </div>
@@ -319,7 +393,7 @@ export default function FaReMFieldForcePortal({ currentUser, users }: FaReMProps
       )}
 
       {/* Tab Content: Product Advisory */}
-      {activeTab === "recommendations" && (
+      {activeFaremTab === "advisory" && (
         <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl p-6 space-y-4">
           <h3 className="font-bold text-gray-900 dark:text-slate-100 text-sm flex items-center gap-2">
             <Send className="w-4 h-4 text-emerald-600" /> Send Product Recommendation / Dosage Advisory
@@ -390,7 +464,7 @@ export default function FaReMFieldForcePortal({ currentUser, users }: FaReMProps
       )}
 
       {/* Tab Content: Promotion Library */}
-      {activeTab === "promotions" && (
+      {activeFaremTab === "promotions" && (
         <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div>
