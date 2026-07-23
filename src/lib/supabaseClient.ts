@@ -304,7 +304,8 @@ export async function saveUserProfileToSupabase(user: Partial<UserProfile> & { p
     region: user.region || "",
     employee_code: user.salespersonCode || "",
     is_active: user.approved !== false,
-    manager_id: manager_id
+    manager_id: manager_id,
+    mobile_number: user.mobileNumber || ""
   };
 
   const { error } = await sb
@@ -1186,6 +1187,7 @@ function mapUserRow(row: any): UserProfile {
     salespersonCode: row.employee_code || undefined,
     approved: row.is_active !== false,
     managerId: row.manager_id || undefined,
+    mobileNumber: row.mobile_number || undefined,
     serverSynced: true
   };
 }

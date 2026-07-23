@@ -1075,7 +1075,8 @@ app.get("/api/db", async (req, res) => {
         territory: u.territory || undefined,
         salespersonCode: u.employee_code || undefined,
         approved: u.is_active !== false,
-        managerId: u.manager_id || undefined
+        managerId: u.manager_id || undefined,
+        mobileNumber: u.mobile_number || undefined
       }));
 
       // Fetch Sales Data
@@ -1261,7 +1262,8 @@ app.post("/api/users/save", async (req, res) => {
         employee_code: updatedUser.salespersonCode || "",
         is_active: updatedUser.approved !== false,
         password: updatedUser.password || "password123",
-        manager_id: manager_id
+        manager_id: manager_id,
+        mobile_number: updatedUser.mobileNumber || ""
       };
 
       const { data: upserted, error: ue } = await sb.from("users").upsert(userRow, { onConflict: "email" }).select();
@@ -1380,7 +1382,8 @@ app.post("/api/users/save-bulk", async (req, res) => {
           employee_code: u.salespersonCode || "",
           is_active: u.approved !== false,
           password: u.password || "password123",
-          manager_id: manager_id
+          manager_id: manager_id,
+          mobile_number: u.mobileNumber || ""
         };
       });
 

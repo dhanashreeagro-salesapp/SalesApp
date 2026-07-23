@@ -9,7 +9,7 @@ export interface UserProfile {
   id: string;
   name: string;
   email: string;
-  role: UserRole;
+  role: "Admin" | "Sales Director" | "Regional Manager" | "Area Manager" | "Salesperson" | "Content Team" | "Finance Manager" | "Finance Executive";
   department?: string;       // E.g. "Sales", "Agronomy", "Finance", "Operations", "HR", "Management"
   allowedApps?: string[];    // E.g. ["salesapp", "farem", "finance", "*"]
   region?: string;           // For Regional Manager (e.g. "West")

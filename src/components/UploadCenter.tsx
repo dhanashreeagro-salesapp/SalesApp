@@ -7,8 +7,8 @@ import React, { useState, useRef } from "react";
 import * as XLSX from "xlsx";
 import { Upload, FileText, CheckCircle2, AlertTriangle, CloudRain, ShieldCheck, Database, RefreshCw, AlertCircle, Lock, Target, Users } from "lucide-react";
 import { InvoiceItem, BudgetItem, UserProfile } from "../types";
-import { getSupabase, uploadExcelToStorage, alignOrphanInvoicesOnSupabase } from "../lib/supabaseClient";
-import { isFuzzyNameMatch } from "../utils/analytics";
+import { getSupabase, uploadExcelToStorage, alignOrphanInvoicesOnSupabase } from "../lib/supabaseClient.ts";
+import { isFuzzyNameMatch } from "../utils/analytics.ts";
 
 function getStandardizedValue(value: string, category: "customer" | "product"): string {
   if (!value) return "";

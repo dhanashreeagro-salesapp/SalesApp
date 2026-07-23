@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Users, MapPin, Sprout, Calendar, Phone, FileText, Send, Search, Filter, ShieldCheck, CheckCircle2, Plus, Share2, BookOpen, AlertCircle, BarChart3, Award, FileSpreadsheet } from "lucide-react";
 import { UserProfile } from "../types";
-import { getUserDescendantsList } from "../utils/analytics";
+import { getUserDescendantsList } from "../utils/analytics.ts";
+import { getSupabase } from "../lib/supabaseClient.ts";
 
 interface FaReMProps {
   currentUser: UserProfile;
@@ -129,21 +130,104 @@ export default function FaReMFieldForcePortal({ currentUser, users, activeFaremT
   const [selectedFarmer, setSelectedFarmer] = useState<FarmerRecord | null>(null);
   const [newRecommendation, setNewRecommendation] = useState({ product: "Erbato", dose: "2 ml/Liter", notes: "" });
   const [recStatus, setRecStatus] = useState<string | null>(null);
+  const [dbFarmers, setDbFarmers] = useState<FarmerRecord[]>([]);
+
+  useEffect(() => {
+    const loadFaremData = async () => {
+      const sb = getSupabase();
+      if (!sb) return;
+      
+      try {
+        const [
+          { data: farmers },
+          { data: plots },
+          { data: seasons },
+          { data: crops },
+          { data: stages },
+          { data: activities }
+        ] = await Promise.all([
+          sb.from("core_farmer").select("*"),
+          sb.from("core_plot").select("*"),
+          sb.from("core_cropseason").select("*"),
+          sb.from("core_cropmaster").select("*"),
+          sb.from("core_cropstage").select("*"),
+          sb.from("core_activitylog").select("*")
+        ]);
+
+        if (farmers && farmers.length > 0) {
+          const mapped: FarmerRecord[] = farmers.map(f => {
+            const staffUser = users.find(u => u.id === f.assigned_staff_id);
+            const farmerPlots = plots ? plots.filter(p => p.farmer_id === f.id) : [];
+            const acres = farmerPlots.reduce((sum, p) => sum + (Number(p.area_acres) || 0), 0) || Number(f.land_holding_acres) || 0;
+            
+            let cropName = "—";
+            let stageName = "—";
+            
+            if (farmerPlots.length > 0 && seasons && seasons.length > 0) {
+              const activeSeason = seasons.find(s => farmerPlots.some(p => p.id === s.plot_id) && s.status === "Active");
+              if (activeSeason) {
+                const cropObj = crops ? crops.find(c => c.id === activeSeason.crop_id) : null;
+                cropName = cropObj ? cropObj.crop_name : "—";
+                
+                const stageObj = stages ? stages.find(st => st.id === activeSeason.current_stage_id) : null;
+                stageName = stageObj ? stageObj.stage_name : "—";
+              }
+            }
+            
+            let lastVisitDate = "—";
+            if (activities && activities.length > 0) {
+              const farmerVisits = activities
+                .filter(a => a.farmer_id === f.id)
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              if (farmerVisits.length > 0) {
+                lastVisitDate = farmerVisits[0].date;
+              }
+            }
+
+            return {
+              id: f.id,
+              fullName: f.full_name,
+              mobile: f.primary_mobile || "—",
+              village: f.village || "—",
+              taluka: f.taluka || "—",
+              district: f.district || "—",
+              acres,
+              assignedStaff: staffUser?.email || "—",
+              staffName: staffUser?.name || "Representative",
+              cropName,
+              stageName,
+              lastVisitDate,
+              status: f.status || "Active"
+            };
+          });
+          setDbFarmers(mapped);
+        }
+      } catch (err) {
+        console.warn("Dynamic FaReM database load bypassed, using mock seed fallback:", err);
+      }
+    };
+    
+    loadFaremData();
+  }, [users]);
+
+  const farmersList = useMemo(() => {
+    return dbFarmers.length > 0 ? dbFarmers : SEED_FARMERS;
+  }, [dbFarmers]);
 
   // Scoped farmers based on user hierarchy
   const scopedFarmers = useMemo(() => {
     const isFullAccess = currentUser.role === "Admin" || currentUser.role === "Sales Director" || currentUser.email === "dhanashree.agro@gmail.com";
-    if (isFullAccess) return SEED_FARMERS;
+    if (isFullAccess) return farmersList;
 
     const descendants = getUserDescendantsList(currentUser, users);
     const allowedEmails = new Set([currentUser.email, ...descendants.map(d => d.email)]);
     const allowedNames = new Set([currentUser.name, ...descendants.map(d => d.name)]);
 
-    return SEED_FARMERS.filter(f => 
+    return farmersList.filter(f => 
       allowedEmails.has(f.assignedStaff) || 
       allowedNames.has(f.staffName)
     );
-  }, [currentUser, users]);
+  }, [currentUser, users, farmersList]);
 
   const filteredFarmers = useMemo(() => {
     if (!searchQuery.trim()) return scopedFarmers;

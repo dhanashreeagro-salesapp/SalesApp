@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from "react";
-import { Settings, Shield, Terminal, Library, AlertCircle, RefreshCw, Layers, CheckCircle, Users, UserPlus, Trash2, Edit3, Key, Mail, MapPin, ArrowUp, ShieldCheck, Activity, Database, AlertTriangle, UploadCloud, FileSpreadsheet } from "lucide-react";
+import { Settings, Shield, Terminal, Library, AlertCircle, RefreshCw, Layers, CheckCircle, Users, UserPlus, Trash2, Edit3, Key, Mail, MapPin, ArrowUp, ShieldCheck, Activity, Database, AlertTriangle, UploadCloud, FileSpreadsheet, Phone } from "lucide-react";
 import { AuditLog, UserProfile, InvoiceItem, CustomerMaster, CustomerAssignment, AssignmentAuditLog } from "../types";
 import * as XLSX from "xlsx";
 import CustomerAssignmentsPanel from "./CustomerAssignmentsPanel";
@@ -15,7 +15,7 @@ import {
   runIntegrityCheckOnSupabase,
   cleanDuplicateRowsOnSupabase,
   alignOrphanInvoicesOnSupabase
-} from "../lib/supabaseClient";
+} from "../lib/supabaseClient.ts";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
@@ -289,6 +289,7 @@ export default function AdminSettings({
   const [formName, setFormName] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formPassword, setFormPassword] = useState("");
+  const [formMobileNumber, setFormMobileNumber] = useState("");
   const [formRole, setFormRole] = useState<"Sales Director" | "Regional Manager" | "Salesperson" | "Admin">("Salesperson");
   const [formRegion, setFormRegion] = useState("");
   const [formTerritory, setFormTerritory] = useState("");
@@ -734,6 +735,7 @@ export default function AdminSettings({
     setFormName(u.name);
     setFormEmail(u.email);
     setFormPassword(u.password || "");
+    setFormMobileNumber(u.mobileNumber || "");
     setFormRole(u.role);
     setFormRegion(u.region || "West");
     setFormTerritory(u.territory || "West-1");
@@ -746,6 +748,7 @@ export default function AdminSettings({
     setFormName("");
     setFormEmail("");
     setFormPassword("");
+    setFormMobileNumber("");
     setFormRole("Salesperson");
     setFormRegion("");
     setFormTerritory("");
@@ -785,6 +788,7 @@ export default function AdminSettings({
       territory: formRole !== "Admin" ? formTerritory : undefined,
       managerName: formRole !== "Admin" ? formManager : undefined,
       salespersonCode: formRole === "Salesperson" ? `SP_${Math.floor(Math.random() * 1000)}` : undefined,
+      mobileNumber: formMobileNumber || undefined,
     };
 
     const result = await onSaveUser(payload);
@@ -1012,6 +1016,12 @@ export default function AdminSettings({
                             <Mail className="w-3 h-3 text-gray-400" />
                             {u.email}
                           </div>
+                          {u.mobileNumber && (
+                            <div className="text-[10px] text-gray-500 font-medium flex items-center gap-1 mt-0.5">
+                              <Phone className="w-3 h-3 text-gray-400" />
+                              {u.mobileNumber}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 font-semibold">
                           <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold ${
@@ -1180,6 +1190,17 @@ export default function AdminSettings({
                   value={formEmail}
                   onChange={(e) => setFormEmail(e.target.value)}
                   placeholder="e.g. sgopal@agroiq.com"
+                  className="w-full px-3 py-1.5 bg-gray-50 border border-gray-200 focus:border-green-600 focus:bg-white rounded-xl text-xs outline-none transition"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold text-gray-500 uppercase block">Mobile Number</label>
+                <input
+                  type="text"
+                  value={formMobileNumber}
+                  onChange={(e) => setFormMobileNumber(e.target.value)}
+                  placeholder="e.g. +91 98220 12345"
                   className="w-full px-3 py-1.5 bg-gray-50 border border-gray-200 focus:border-green-600 focus:bg-white rounded-xl text-xs outline-none transition"
                 />
               </div>
