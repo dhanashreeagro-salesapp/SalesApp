@@ -319,6 +319,25 @@ export async function saveUserProfileToSupabase(user: Partial<UserProfile> & { p
     console.error("Error upserting user profile into Supabase:", error);
     return false;
   }
+
+  // Attempt to synchronize mobile number to FaReM core_user table
+  try {
+    const userIdForMatch = user.id && !user.id.startsWith("user_") ? user.id : undefined;
+    if (userIdForMatch) {
+      await sb
+        .from("core_user")
+        .update({ mobile_number: user.mobileNumber || "" })
+        .or(`salesapp_user_id.eq.${userIdForMatch},email.eq.${user.email}`);
+    } else {
+      await sb
+        .from("core_user")
+        .update({ mobile_number: user.mobileNumber || "" })
+        .eq("email", user.email);
+    }
+  } catch (coreUserErr) {
+    console.warn("Bypassed core_user sync:", coreUserErr);
+  }
+
   return true;
 }
 

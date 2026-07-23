@@ -1272,6 +1272,24 @@ app.post("/api/users/save", async (req, res) => {
         updatedUser.id = upserted[0].id;
       }
       supabaseSynced = true;
+
+      // Attempt to sync mobile_number to FaReM core_user table
+      try {
+        const userIdForMatch = updatedUser.id && !updatedUser.id.startsWith("user_") ? updatedUser.id : undefined;
+        if (userIdForMatch) {
+          await sb
+            .from("core_user")
+            .update({ mobile_number: updatedUser.mobileNumber || "" })
+            .or(`salesapp_user_id.eq.${userIdForMatch},email.eq.${updatedUser.email}`);
+        } else {
+          await sb
+            .from("core_user")
+            .update({ mobile_number: updatedUser.mobileNumber || "" })
+            .eq("email", updatedUser.email);
+        }
+      } catch (coreUserErr) {
+        console.warn("Bypassed core_user sync in API endpoint:", coreUserErr);
+      }
     } catch (err: any) {
       console.error("Profile write failure to Supabase:", err.message);
       return res.status(500).json({ error: `Database write failure: ${err.message}. Please configure SUPABASE_SERVICE_ROLE_KEY or disable Row Level Security (RLS) on the 'users' table in the Supabase console.` });
@@ -1389,6 +1407,27 @@ app.post("/api/users/save-bulk", async (req, res) => {
 
       const { error: ue } = await sb.from("users").upsert(rows, { onConflict: "email" });
       if (ue) throw ue;
+
+      // Attempt to sync mobile_numbers to FaReM core_user table in bulk
+      for (const u of updatedUsers) {
+        try {
+          const userIdForMatch = u.id && !u.id.startsWith("user_") ? u.id : undefined;
+          if (userIdForMatch) {
+            await sb
+              .from("core_user")
+              .update({ mobile_number: u.mobileNumber || "" })
+              .or(`salesapp_user_id.eq.${userIdForMatch},email.eq.${u.email}`);
+          } else {
+            await sb
+              .from("core_user")
+              .update({ mobile_number: u.mobileNumber || "" })
+              .eq("email", u.email);
+          }
+        } catch (coreUserErr) {
+          console.warn("Bypassed core_user sync for user in bulk import:", coreUserErr);
+        }
+      }
+
       supabaseSynced = true;
     } catch (err: any) {
       console.error("Bulk profile write failure to Supabase:", err.message);

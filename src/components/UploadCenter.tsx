@@ -1301,6 +1301,7 @@ export default function UploadCenter({
       const colJoiningDate = findCol(["joining_date", "joining date", "date of joining"]);
       const colStatus = findCol(["status", "is_active", "active", "approved"]);
       const colPassword = findCol(["password", "set password"]); // only in old format, optional
+      const colMobileNumber = findCol(["mobile_number", "mobile number", "mobile", "phone", "contact number", "mobile_number_field"]);
 
       const missingCols = [];
       if (!colName) missingCols.push("employee_name / Employee Name");
@@ -1343,6 +1344,7 @@ export default function UploadCenter({
         const code = colCode ? String(row[colCode] || "").trim() : "";
         const statusVal = colStatus ? String(row[colStatus] || "").trim() : "";
         const password = colPassword ? String(row[colPassword] || "").trim() : "password123";
+        const mobileNumber = colMobileNumber ? String(row[colMobileNumber] || "").trim() : "";
 
         // 1. Check required fields
         if (!name || !email || !roleVal || !territory || !region || !managerRaw) {
@@ -1416,7 +1418,8 @@ export default function UploadCenter({
           managerName: resolvedManagerName,
           managerId: resolvedManagerId,
           approved,
-          salespersonCode: code || (role === "Salesperson" ? `SP_${region[0] || 'X'}${Math.floor(Math.random() * 105)}` : undefined)
+          salespersonCode: code || (role === "Salesperson" ? `SP_${region[0] || 'X'}${Math.floor(Math.random() * 105)}` : undefined),
+          mobileNumber: mobileNumber || undefined
         });
       }
 
@@ -1804,6 +1807,7 @@ export default function UploadCenter({
                             <th className="p-1.5">Name</th>
                             <th className="p-1.5">Role</th>
                             <th className="p-1.5">Email</th>
+                            <th className="p-1.5">Mobile</th>
                             <th className="p-1.5">Region</th>
                             <th className="p-1.5">Location</th>
                             <th className="p-1.5">Manager</th>
@@ -1815,6 +1819,7 @@ export default function UploadCenter({
                               <td className="p-1.5 font-bold">{pu.name}</td>
                               <td className="p-1.5 font-medium">{pu.role}</td>
                               <td className="p-1.5 font-mono text-[9px]">{pu.email}</td>
+                              <td className="p-1.5 font-mono text-[9px]">{pu.mobileNumber || "—"}</td>
                               <td className="p-1.5">{pu.region}</td>
                               <td className="p-1.5">{pu.territory}</td>
                               <td className="p-1.5">{pu.managerName}</td>
