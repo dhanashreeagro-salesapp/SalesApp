@@ -856,6 +856,20 @@ app.post("/api/auth/forgot-password", async (req, res) => {
   const cleanEmail = String(email).trim().toLowerCase();
 
   try {
+    if (sb) {
+      const origin = req.headers.origin || "https://salesapp.dhanashreeagro.com";
+      const { error: resetErr } = await sb.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: `${origin}/reset-password`
+      });
+      if (!resetErr) {
+        return res.json({
+          success: true,
+          message: `Password reset email dispatched to ${cleanEmail} via Supabase Auth.`
+        });
+      }
+      console.warn("Supabase Auth resetPasswordForEmail warning:", resetErr.message);
+    }
+
     let dbUsers: any[] = [];
     if (sb) {
       const { data } = await sb.from("users").select("*");

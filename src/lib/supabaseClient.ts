@@ -261,6 +261,22 @@ export async function supabaseSignOut() {
   }
 }
 
+/**
+ * Send password reset email via Supabase Auth
+ */
+export async function supabaseResetPasswordForEmail(email: string, redirectTo?: string) {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Supabase is not configured.");
+
+  const targetRedirect = redirectTo || (typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined);
+  const { data, error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: targetRedirect
+  });
+
+  if (error) throw error;
+  return data;
+}
+
 // ==================================================
 // USERS RETRIEVAL & MANAGEMENT
 // ==================================================

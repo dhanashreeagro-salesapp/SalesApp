@@ -6,7 +6,7 @@
 import React, { useState } from "react";
 import { TrendingUp, ShieldCheck, Mail, Lock, UserPlus, LogIn, ChevronRight, User, Globe, HelpCircle } from "lucide-react";
 import { UserProfile, InvoiceItem } from "../types";
-import { getSupabase, supabaseSignIn, supabaseSignUp } from "../lib/supabaseClient";
+import { getSupabase, supabaseSignIn, supabaseSignUp, supabaseResetPasswordForEmail } from "../lib/supabaseClient";
 import dhanashreeLogo from "../assets/images/dhanashree_logo_1779970374585.png";
 
 interface LoginScreenProps {
@@ -295,12 +295,29 @@ export default function LoginScreen({
                       }
                       setError(null);
                       setRegSuccess(null);
+
+                      const cleanEmail = email.trim();
+
+                      // If Supabase is active, dispatch password reset email via Supabase Auth
+                      const sb = getSupabase();
+                      if (sb) {
+                        try {
+                          console.log("Supabase active. Requesting password reset via Supabase Auth...");
+                          await supabaseResetPasswordForEmail(cleanEmail);
+                          setRegSuccess(`Password reset email dispatched to ${cleanEmail} via Supabase Auth! Please check your inbox.`);
+                          return;
+                        } catch (err: any) {
+                          console.warn("Supabase Auth reset failed, trying API endpoint fallback:", err.message);
+                        }
+                      }
+
+                      // Fallback to Express backend API endpoint
                       try {
                         const API_BASE = import.meta.env.VITE_API_URL || "";
                         const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ email: email.trim() })
+                          body: JSON.stringify({ email: cleanEmail })
                         });
                         const data = await res.json();
                         if (res.ok && data.success) {
