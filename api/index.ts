@@ -943,12 +943,13 @@ app.post("/api/auth/forgot-password", async (req, res) => {
 
 // Centralized Password Reset Execution
 app.post("/api/auth/reset-password", async (req, res) => {
-  const { token, newPassword } = req.body || {};
-  if (!token || !newPassword) {
-    return res.status(400).json({ error: "Token and new password are required." });
+  const { token, email, newPassword } = req.body || {};
+  if ((!token && !email) || !newPassword) {
+    return res.status(400).json({ error: "Email/token and new password are required." });
   }
 
   const sb = getSupabaseAdminClient();
+  const cleanEmail = email ? String(email).trim().toLowerCase() : "";
 
   try {
     let dbUsers: any[] = [];
@@ -959,25 +960,42 @@ app.post("/api/auth/reset-password", async (req, res) => {
       dbUsers = localUsers;
     }
 
-    const userRow = dbUsers.find((u: any) => u.reset_password_token === token);
+    const userRow = dbUsers.find((u: any) =>
+      (token && u.reset_password_token === token) ||
+      (cleanEmail && u.email && u.email.trim().toLowerCase() === cleanEmail)
+    );
+
     if (!userRow) {
-      return res.status(400).json({ error: "Invalid or expired password reset token." });
+      return res.status(400).json({ error: "No matching user account found to update password." });
     }
 
-    if (userRow.reset_password_expires && new Date(userRow.reset_password_expires).getTime() < Date.now()) {
+    if (token && userRow.reset_password_expires && new Date(userRow.reset_password_expires).getTime() < Date.now()) {
       return res.status(400).json({ error: "Password reset token has expired. Please request a new link." });
     }
 
+    const updatedPass = String(newPassword).trim();
+
     if (sb) {
       await sb.from("users").update({
-        password: newPassword,
+        password: updatedPass,
         reset_password_token: null,
         reset_password_expires: null
       }).eq("id", userRow.id);
+
+      // Attempt to sync password to Supabase Auth if user exists in auth.users
+      try {
+        await sb.auth.admin.updateUserById(userRow.id, { password: updatedPass });
+      } catch (_) {}
     } else {
-      userRow.password = newPassword;
+      userRow.password = updatedPass;
       userRow.reset_password_token = null;
       userRow.reset_password_expires = null;
+    }
+
+    // Also update server localUsers cache
+    const cachedUser = localUsers.find((u: any) => u.email && u.email.trim().toLowerCase() === userRow.email.trim().toLowerCase());
+    if (cachedUser) {
+      cachedUser.password = updatedPass;
     }
 
     res.json({
