@@ -268,7 +268,8 @@ export async function supabaseResetPasswordForEmail(email: string, redirectTo?: 
   const sb = getSupabase();
   if (!sb) throw new Error("Supabase is not configured.");
 
-  const targetRedirect = redirectTo || (typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined);
+  const currentOrigin = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : undefined;
+  const targetRedirect = redirectTo || currentOrigin;
   const { data, error } = await sb.auth.resetPasswordForEmail(email, {
     redirectTo: targetRedirect
   });

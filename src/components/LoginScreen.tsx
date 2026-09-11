@@ -61,6 +61,113 @@ export default function LoginScreen({
   const [newTerritory, setNewTerritory] = useState("");
   const [newManager, setNewManager] = useState("");
 
+  // Password Reset Recovery Mode State
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [newResetPassword, setNewResetPassword] = useState("");
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const hash = window.location.hash;
+    const search = window.location.search;
+
+    // 1. Check for errors returned in URL hash from Supabase Auth (e.g. otp_expired or invalid link)
+    if (hash && hash.includes("error=")) {
+      const params = new URLSearchParams(hash.replace(/^#/, ""));
+      const errCode = params.get("error_code");
+      const errDesc = params.get("error_description");
+
+      if (errCode === "otp_expired" || (errDesc && errDesc.toLowerCase().includes("expired"))) {
+        setError("The password reset link has expired or is invalid. Please enter your email in 'Corporate ID' and click 'Forgot Password?' to send a new link.");
+      } else if (errDesc) {
+        setError(`Password reset error: ${decodeURIComponent(errDesc.replace(/\+/g, " "))}`);
+      }
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+
+    // 2. Check for active Supabase recovery session in URL hash (#access_token=...&type=recovery)
+    if (hash && hash.includes("type=recovery")) {
+      setIsResettingPassword(true);
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+
+    // 3. Check for query parameters (?token=...&email=...) from custom backend API reset link
+    if (search && search.includes("token=")) {
+      const params = new URLSearchParams(search);
+      const tok = params.get("token");
+      const em = params.get("email");
+      if (tok) {
+        setResetToken(tok);
+        if (em) setEmail(em);
+        setIsResettingPassword(true);
+      }
+    }
+
+    // 4. Listen to Supabase Auth state changes for PASSWORD_RECOVERY event
+    const sb = getSupabase();
+    if (sb) {
+      const { data: authListener } = sb.auth.onAuthStateChange((event) => {
+        if (event === "PASSWORD_RECOVERY") {
+          setIsResettingPassword(true);
+        }
+      });
+      return () => {
+        authListener?.subscription.unsubscribe();
+      };
+    }
+  }, []);
+
+  const handleExecuteResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setRegSuccess(null);
+
+    if (!newResetPassword || !newResetPassword.trim()) {
+      setError("Please enter your new password.");
+      return;
+    }
+
+    const sb = getSupabase();
+    if (sb) {
+      try {
+        const { error: updateErr } = await sb.auth.updateUser({ password: newResetPassword.trim() });
+        if (updateErr) throw updateErr;
+        setRegSuccess("Your password has been updated successfully! You can now log in with your new password.");
+        setIsResettingPassword(false);
+        setNewResetPassword("");
+        return;
+      } catch (err: any) {
+        console.warn("Supabase auth.updateUser failed, trying backend API reset endpoint:", err.message);
+      }
+    }
+
+    if (resetToken) {
+      try {
+        const API_BASE = import.meta.env.VITE_API_URL || "";
+        const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: resetToken, newPassword: newResetPassword.trim() })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setRegSuccess("Your password has been updated successfully! You can now log in with your new password.");
+          setIsResettingPassword(false);
+          setNewResetPassword("");
+        } else {
+          setError(data.error || "Failed to reset password.");
+        }
+      } catch (err: any) {
+        setError("Password reset execution error: " + err.message);
+      }
+    } else {
+      setError("Invalid or expired password reset session.");
+    }
+  };
+
    const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -267,7 +374,44 @@ export default function LoginScreen({
             </div>
           )}
 
-          {!isRegistering ? (
+          {isResettingPassword ? (
+            <form onSubmit={handleExecuteResetPassword} className="space-y-4">
+              <div className="p-3 bg-blue-50 border border-blue-150 text-blue-900 rounded-xl text-xs leading-relaxed">
+                <span className="font-bold flex items-center gap-1 text-blue-800">🔐 Password Reset Mode</span>
+                <p className="text-[11px] mt-0.5">Please enter your new account security password below.</p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">New Security Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
+                  <input
+                    type="password"
+                    value={newResetPassword}
+                    onChange={(e) => setNewResetPassword(e.target.value)}
+                    placeholder="Enter new password"
+                    className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 focus:border-green-600 focus:bg-white rounded-xl text-xs font-semibold outline-none transition"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                Update Password & Log In
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsResettingPassword(false)}
+                className="w-full text-center text-xs text-gray-500 hover:text-gray-700 font-medium py-1"
+              >
+                ← Back to Login
+              </button>
+            </form>
+          ) : !isRegistering ? (
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">Corporate ID (Email)</label>
@@ -297,14 +441,15 @@ export default function LoginScreen({
                       setRegSuccess(null);
 
                       const cleanEmail = email.trim();
+                      const appOrigin = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "https://salesapp.dhanashreeagro.com";
 
-                      // If Supabase is active, dispatch password reset email via Supabase Auth
+                      // If Supabase is active, dispatch password reset email via Supabase Auth using active browser origin
                       const sb = getSupabase();
                       if (sb) {
                         try {
-                          console.log("Supabase active. Requesting password reset via Supabase Auth...");
-                          await supabaseResetPasswordForEmail(cleanEmail);
-                          setRegSuccess(`Password reset email dispatched to ${cleanEmail} via Supabase Auth! Please check your inbox.`);
+                          console.log(`Supabase active. Requesting password reset via Supabase Auth with redirect to ${appOrigin}...`);
+                          await supabaseResetPasswordForEmail(cleanEmail, appOrigin);
+                          setRegSuccess(`Password reset email dispatched to ${cleanEmail}! Please check your inbox for instructions.`);
                           return;
                         } catch (err: any) {
                           console.warn("Supabase Auth reset failed, trying API endpoint fallback:", err.message);

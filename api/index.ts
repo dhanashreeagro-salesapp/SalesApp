@@ -845,6 +845,34 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
+function getRequestOrigin(req: express.Request): string {
+  let origin = req.headers.origin;
+  if (!origin && req.headers.referer) {
+    try {
+      const u = new URL(req.headers.referer);
+      origin = u.origin;
+    } catch (_) {}
+  }
+  if (!origin && req.headers["x-forwarded-host"]) {
+    const proto = (req.headers["x-forwarded-proto"] as string) || "https";
+    const host = (req.headers["x-forwarded-host"] as string).split(",")[0].trim();
+    origin = `${proto}://${host}`;
+  }
+  if (!origin && req.headers.host) {
+    const proto = (req.headers["x-forwarded-proto"] as string) || (req.secure ? "https" : "http");
+    origin = `${proto}://${req.headers.host}`;
+  }
+  if (!origin && process.env.VERCEL_URL) {
+    origin = `https://${process.env.VERCEL_URL}`;
+  }
+  if (!origin || origin.includes("localhost") || origin.includes("127.0.0.1")) {
+    if (process.env.VERCEL || process.env.NODE_ENV === "production") {
+      origin = "https://salesapp.dhanashreeagro.com";
+    }
+  }
+  return (origin || "https://salesapp.dhanashreeagro.com").replace(/\/$/, "");
+}
+
 // Centralized Password Reset Request (Email Link)
 app.post("/api/auth/forgot-password", async (req, res) => {
   const { email } = req.body || {};
@@ -857,9 +885,9 @@ app.post("/api/auth/forgot-password", async (req, res) => {
 
   try {
     if (sb) {
-      const origin = req.headers.origin || "https://salesapp.dhanashreeagro.com";
+      const origin = getRequestOrigin(req);
       const { error: resetErr } = await sb.auth.resetPasswordForEmail(cleanEmail, {
-        redirectTo: `${origin}/reset-password`
+        redirectTo: origin
       });
       if (!resetErr) {
         return res.json({
