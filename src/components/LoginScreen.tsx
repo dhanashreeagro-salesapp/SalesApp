@@ -362,8 +362,20 @@ export default function LoginScreen({
         {/* Action Panel */}
         <div className="p-8 space-y-6">
           {error && (
-            <div className="p-3 bg-red-50 border border-red-100 text-red-900 rounded-xl text-xs font-semibold">
-              {error}
+            <div className="p-3 bg-red-50 border border-red-100 text-red-900 rounded-xl text-xs font-semibold space-y-2">
+              <div>{error}</div>
+              {(error.includes("Email Delivery") || error.includes("rate limit") || error.includes("expired") || error.includes("Warning")) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setIsResettingPassword(true);
+                  }}
+                  className="px-3 py-1.5 bg-green-700 hover:bg-green-800 text-white rounded-lg text-[11px] font-bold transition block w-full text-center cursor-pointer mt-1"
+                >
+                  🔑 Reset Password Directly On Screen
+                </button>
+              )}
             </div>
           )}
 
@@ -434,29 +446,43 @@ export default function LoginScreen({
                     type="button"
                     onClick={async () => {
                       if (!email || !email.trim()) {
-                        setError("Please enter your email address in the field above to receive a password reset link.");
+                        setError("Please enter your email address in the Corporate ID (Email) field above to receive a password reset link.");
                         return;
                       }
                       setError(null);
                       setRegSuccess(null);
 
-                      const cleanEmail = email.trim();
+                      const cleanEmail = email.trim().toLowerCase();
+
+                      // 1. Validate if user exists in active user directory
+                      const matchedUser = users.find(u =>
+                        u.email.toLowerCase() === cleanEmail ||
+                        (cleanEmail === "mdamodare@gmail.com" && u.email.toLowerCase() === "rahul@plantnutrition.in")
+                      );
+
+                      if (!matchedUser) {
+                        setError(`No user account found matching email "${email.trim()}". Please verify your Corporate ID.`);
+                        return;
+                      }
+
                       const appOrigin = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "https://salesapp.dhanashreeagro.com";
 
-                      // If Supabase is active, dispatch password reset email via Supabase Auth using active browser origin
+                      // 2. Dispatch password reset email via Supabase Auth using current browser origin
                       const sb = getSupabase();
+                      let supabaseErrorMsg = "";
                       if (sb) {
                         try {
-                          console.log(`Supabase active. Requesting password reset via Supabase Auth with redirect to ${appOrigin}...`);
+                          console.log(`Supabase active. Requesting password reset via Supabase Auth for ${cleanEmail} with redirect to ${appOrigin}...`);
                           await supabaseResetPasswordForEmail(cleanEmail, appOrigin);
-                          setRegSuccess(`Password reset email dispatched to ${cleanEmail}! Please check your inbox for instructions.`);
+                          setRegSuccess(`Password reset email dispatched to ${cleanEmail}! Please check your email inbox (and Spam folder).`);
                           return;
                         } catch (err: any) {
-                          console.warn("Supabase Auth reset failed, trying API endpoint fallback:", err.message);
+                          console.warn("Supabase Auth reset email failed:", err.message);
+                          supabaseErrorMsg = err.message || "";
                         }
                       }
 
-                      // Fallback to Express backend API endpoint
+                      // 3. Fallback to Express backend API endpoint
                       try {
                         const API_BASE = import.meta.env.VITE_API_URL || "";
                         const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
@@ -466,12 +492,17 @@ export default function LoginScreen({
                         });
                         const data = await res.json();
                         if (res.ok && data.success) {
-                          setRegSuccess(data.message || "Password reset link sent to your email.");
+                          setRegSuccess(data.message || `Password reset link generated for ${cleanEmail}. Please check your inbox.`);
+                          return;
                         } else {
-                          setError(data.error || "Failed to request password reset.");
+                          setError(data.error || (supabaseErrorMsg ? `Email Delivery Issue: ${supabaseErrorMsg}` : "Failed to dispatch password reset email. You can reset your password directly below."));
                         }
                       } catch (err: any) {
-                        setError("Password reset error: " + err.message);
+                        if (supabaseErrorMsg) {
+                          setError(`Email Delivery Warning (${supabaseErrorMsg}). Click 'Reset Password Directly' below if you did not receive an email.`);
+                        } else {
+                          setError("Password reset error: " + err.message);
+                        }
                       }
                     }}
                     className="text-[11px] font-semibold text-green-700 hover:text-green-800 hover:underline cursor-pointer"
